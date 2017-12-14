@@ -30,6 +30,8 @@ library:
     - persistent-template
     - text
     - time
+    - bytestring-read
+    - aeson
 
 executables:
   que-ui:

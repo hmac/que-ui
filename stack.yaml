@@ -2,7 +2,8 @@ resolver: lts-9.17
 
 packages:
 - .
-extra-deps: []
+extra-deps:
+- ./bytestring-read-0.3.1
 
 flags: {}
 
