@@ -30,7 +30,6 @@ library:
     - persistent-template
     - text
     - time
-    - bytestring-read
     - aeson
 
 executables:
@@ -48,12 +47,7 @@ executables:
     - text
     - aeson
     - postgresql-simple
-    - mtl
-    - persistent
-    - persistent-postgresql
-    - esqueleto
-    - fast-logger
-    - monad-logger
+    - raw-strings-qq
 
 tests:
   que-ui-test:
