@@ -1,49 +1,61 @@
-{-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE QuasiQuotes       #-}
+{-# LANGUAGE OverloadedStrings   #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 
 module Main where
 
-import           Data.Text
-import           Data.Time.Clock
+import           Control.Monad.IO.Class     (liftIO)
+import           Data.Text                  (Text)
+import qualified Data.Text                  as T
+import qualified Data.Text.Lazy             as L
 import           Database.PostgreSQL.Simple
-import           Text.RawString.QQ
-
-hello :: Connection -> IO Int
-hello conn = do
-  [Only i] <- query_ conn "select 2 + 2"
-  return i
+import           Network.HTTP.Types.Status
+import           Sql                        (healthCheck, queueSummary, workers)
+import           Web.Scotty
 
 main :: IO ()
 main = do
   conn <- connectPostgreSQL ""
-  h <- hello conn
-  putStrLn $ "hello: " ++ show h
-  jobs conn >>= print
-  workers conn >>= print
+  scotty 3001 $ do
+    get "/health_check" (healthCheckRoute conn)
+    get "/queue-summary/:queue" (queueSummaryRoute conn)
+    get "/queue-summary" (redirect "/queue-summary/")
+    get "/workers" (workersRoute conn)
+
+healthCheckRoute :: Connection -> ActionM ()
+healthCheckRoute conn = do
+  s <- liftIO (healthCheck conn)
+  json s
+
+queueSummaryRoute :: Connection -> ActionM ()
+queueSummaryRoute conn = do
+  queue <- safeParam "queue"
+  case queue of
+    Nothing -> status status400
+    Just q -> do
+      summary <- liftIO $ queueSummary conn q
+      json summary
+
+workersRoute :: Connection -> ActionM ()
+workersRoute conn = do
+  ws <- liftIO $ workers conn
+  json ws
+
+jobsRoute :: Connection -> ActionM ()
+jobsRoute conn = do
+  -- priority <- safeParam "priority"
+  -- jobClass <- safeParam "job_class"
+  -- queue <- safeParam "queue"
+  -- errorCount <- safeParam "error_count"
   return ()
 
-jobs :: Connection -> IO Int
-jobs conn = do
-  [Only c] <- query_ conn "select count(*) from que_jobs"
-  return c
+-- TODO: this is dangerous and lame
+constructWhere :: [(Text, Text)] -> Text
+constructWhere ws = T.append " WHERE " (go ws)
+  where go :: [(Text, Text)] -> Text
+        go []                       = ""
+        go ((column, value) : rest) = T.concat [column, " = ", value, go rest]
 
-workers :: Connection -> IO [(Text, Text, Text, Text, UTCTime, Text)]
-workers conn = query_ conn [r|
-    SELECT
-      que_jobs.job_class AS job_class,
-      que_jobs.job_id AS job_id,
-      que_jobs.queue AS queue,
-      pg.pid AS pid,
-      pg.query_start AS started_at,
-      to_char(now() - pg.query_start, 'HH24:MI:SS') AS processing_time
-    FROM
-      que_jobs
-    JOIN (
-      SELECT ((pg_locks.classid::bigint << 32) | pg_locks.objid::bigint) AS job_id,
-             pg_stat_activity.*
-      FROM pg_locks
-      JOIN pg_stat_activity USING (pid)
-      WHERE locktype = 'advisory'
-    ) pg USING (job_id)
-    ORDER BY pid
-  |]
+-- Like `param`, but when a parameter isn't present it
+-- returns Nothing instead of raising an exception.
+safeParam :: Parsable a => L.Text -> ActionM (Maybe a)
+safeParam p = fmap Just (param p) `rescue` const (return Nothing)

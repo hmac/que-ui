@@ -7,3 +7,15 @@ extra-deps: []
 flags: {}
 
 extra-package-dbs: []
+
+image:
+  containers:
+    - base: alpine
+      name: que-ui
+      executables:
+      - que-ui
+      entrypoints:
+      - que-ui
+
+docker:
+  enable: false

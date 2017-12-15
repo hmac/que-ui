@@ -25,12 +25,11 @@ dependencies:
 library:
   source-dirs: src
   dependencies:
-    - persistent
-    - persistent-postgresql
-    - persistent-template
+    - postgresql-simple
+    - raw-strings-qq
     - text
     - time
-    - aeson
+    - containers
 
 executables:
   que-ui:
@@ -48,6 +47,8 @@ executables:
     - aeson
     - postgresql-simple
     - raw-strings-qq
+    - http-types
+    - containers
 
 tests:
   que-ui-test:
