@@ -165,15 +165,45 @@ jobs conn filters = query conn [sql|
     run_at > now() AS scheduled_for_future
   FROM
     que_jobs
+  LEFT JOIN (
+    SELECT
+      ((pg_locks.classid::bigint << 32) | pg_locks.objid::bigint) AS pg_lock_id
+    FROM
+      pg_locks
+    WHERE pg_locks.locktype = 'advisory'
+    AND pg_locks.objsubid = 1
+  ) l
+  ON l.pg_lock_id = que_jobs.job_id
   WHERE ((? = true AND priority = ?) OR (? = false))
   AND   ((? = true AND job_class = ?) OR (? = false))
   AND   ((? = true AND queue = ?) OR (? = false))
-  AND   ((? = true AND (error_count > 0) = ?) OR (? = false))
+  AND   ((? = true AND (error_count > 0) = ? AND l.pg_lock_id IS NULL) OR (? = false))
   ORDER BY retryable::int DESC,
            (run_at < now())::int DESC,
            priority ASC, run_at ASC
   LIMIT 100
   |] filters
+
+job :: Connection -> Int -> IO (Maybe JobRow)
+job conn jobId = do
+  js <- query conn [sql|
+    SELECT
+      priority,
+      job_id,
+      job_class,
+      args,
+      (error_count > 0)::bool AS failed,
+      error_count,
+      queue,
+      retryable,
+      run_at > now() AS scheduled_for_future
+    FROM que_jobs
+    WHERE job_id = ?
+    LIMIT 1
+    |] [jobId]
+  case js of
+    [j] -> return (Just j)
+    _   -> return Nothing
 
 failedJobs :: Connection -> IO [JobRow]
 failedJobs conn = query_ conn [sql|

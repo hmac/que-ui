@@ -23,7 +23,7 @@ import           Network.Wai                         (Request)
 import           Network.Wai.Handler.Warp            (defaultSettings,
                                                       setOnException, setPort)
 import           Sql                                 (failedJobs, healthCheck,
-                                                      jobs, queueSummary,
+                                                      job, jobs, queueSummary,
                                                       workers)
 import           Web.Scotty
 
@@ -31,10 +31,7 @@ main :: IO ()
 main = do
   conn <- connectPostgreSQL "" >>= newMVar
   forkIO (dbKeepalive 1000000 conn) -- 1 second sleep by default
-  app conn `catch` \(e :: IOError) -> do
-    putStrLn "caught error"
-    print e
-    return ()
+  app conn
 
 -- Poll the database connection, checking that it is still up
 -- If it isn't, attempt to reconnect it, backing off exponentially
@@ -54,20 +51,13 @@ dbKeepalive sleep connVar = do
           dbKeepalive sleep connVar
 
 app :: MVar Connection -> IO ()
-app conn = scottyOpts opts $ do
+app conn = scotty 3001 $ do
     get "/health_check" (healthCheckRoute conn)
     get "/queue-summary/:queue" (queueSummaryRoute conn)
     get "/queue-summary" (redirect "/queue-summary/")
     get "/workers" (workersRoute conn)
+    get "/jobs/:id" (jobRoute conn)
     get "/jobs" (jobsRoute conn)
-    get "/raise" $ (liftIO . throw) (libPQError "db exploded")
-      where opts = Options 0 settings
-            settings = setPort 3001 . setOnException handleError $ defaultSettings
-
-handleError :: Maybe Request -> SomeException -> IO ()
-handleError _req err = do
-  putStrLn "an error occurred!"
-  putStrLn $ "Error: " ++ show err
 
 healthCheckRoute :: MVar Connection -> ActionM ()
 healthCheckRoute conn = do
@@ -80,7 +70,7 @@ queueSummaryRoute conn = do
   c <- liftIO $ readMVar conn
   queue <- safeParam "queue"
   case queue of
-    Nothing -> status status400
+    Nothing -> status status404
     Just q -> do
       summary <- liftIO $ queueSummary c q
       json summary
@@ -90,6 +80,16 @@ workersRoute conn = do
   c <- liftIO $ readMVar conn
   ws <- liftIO $ workers c
   json ws
+
+jobRoute :: MVar Connection -> ActionM ()
+jobRoute conn = do
+  jobId <- safeParam "id"
+  case jobId of
+    Nothing -> status status404
+    Just i -> do
+      c <- liftIO $ readMVar conn
+      j <- liftIO $ job c i
+      json j
 
 data Filter = Priority Text | Class Text | Queue Text deriving Eq
 data JobsFilter = JobsFilter
