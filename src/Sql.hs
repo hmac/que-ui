@@ -1,13 +1,16 @@
 {-# LANGUAGE OverloadedStrings   #-}
 {-# LANGUAGE QuasiQuotes         #-}
+{-# LANGUAGE RecordWildCards     #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 module Sql where
 
-import qualified Data.Map.Strict                  as Map
+import           Data.Aeson
+import qualified Data.Map.Strict                    as Map
 import           Data.Text
 import           Data.Time.Clock
 import           Database.PostgreSQL.Simple
-import           Database.PostgreSQL.Simple.SqlQQ (sql)
+import           Database.PostgreSQL.Simple.FromRow
+import           Database.PostgreSQL.Simple.SqlQQ   (sql)
 
 -- Hits the database to check that we still have a connection,
 -- then returns {"db": "ok", "api": "ok}
@@ -18,7 +21,28 @@ healthCheck conn = do
 
 -- A summary of all active workers, showing what jobs they are working
 -- and how long they've been working them.
-workers :: Connection -> IO [(Text, Text, Text, Text, UTCTime, Text)]
+data WorkerRow = WorkerRow {
+    workerClass          :: Text
+  , workerId             :: Int
+  , workerQueue          :: Text
+  , workerPid            :: Int
+  , workerStartedAt      :: UTCTime
+  , workerProcessingTime :: Text
+  }
+instance FromRow WorkerRow where
+  fromRow = WorkerRow <$> field <*> field <*> field
+                      <*> field <*> field <*> field
+instance ToJSON WorkerRow where
+  toJSON r = object [
+      "job_class" .= workerClass
+    , "job_id" .= workerId
+    , "queue" .= workerQueue
+    , "pid" .= workerPid
+    , "started_at" .= workerStartedAt
+    , "processing_time" .= workerProcessingTime
+    ]
+      where WorkerRow{..} = r
+workers :: Connection -> IO [WorkerRow]
 workers conn = query_ conn [sql|
     SELECT
       que_jobs.job_class AS job_class,
@@ -40,7 +64,23 @@ workers conn = query_ conn [sql|
   |]
 
 -- A summary of all jobs currently being worked, grouped by job class.
-queueSummary :: Connection -> Text -> IO [(Text, Text, Integer, Integer)]
+data SummaryRow = SummaryRow {
+    summaryClass        :: Text
+  , summaryPriority     :: Int
+  , summaryCount        :: Int
+  , summaryCountWorking :: Int
+  }
+instance FromRow SummaryRow where
+  fromRow = SummaryRow <$> field <*> field <*> field <*> field
+instance ToJSON SummaryRow where
+  toJSON r = object [
+      "job_class" .= summaryClass
+    , "priority" .= summaryPriority
+    , "count" .= summaryCount
+    , "count_working" .= summaryCountWorking
+    ]
+      where SummaryRow{..} = r
+queueSummary :: Connection -> Text -> IO [SummaryRow]
 queueSummary conn queue = query conn [sql|
     SELECT
       job_class,
@@ -70,3 +110,78 @@ queueSummary conn queue = query conn [sql|
     ORDER BY
       priority, lower(job_class)
   |] [queue]
+
+data JobRow = JobRow {
+    jobPriority           :: Int
+  , jobId                 :: Int
+  , jobClass              :: Text
+  , jobArgs               :: Value
+  , jobFailed             :: Bool
+  , jobErrorCount         :: Int
+  , jobQueue              :: Text
+  , jobRetryable          :: Bool
+  , jobScheduledForFuture :: Bool
+  }
+instance FromRow JobRow where
+  fromRow = JobRow <$> field <*> field <*> field
+                   <*> field <*> field <*> field
+                   <*> field <*> field <*> field
+instance ToJSON JobRow where
+  toJSON j = object [
+      "priority" .= jobPriority
+    , "job_id" .= jobId
+    , "job_class" .= jobClass
+    , "args" .= jobArgs
+    , "failed" .= jobFailed
+    , "error_count" .= jobErrorCount
+    , "queue" .= jobQueue
+    , "retryable" .= jobRetryable
+    , "scheduled_for_future" .= jobScheduledForFuture
+    ]
+      where JobRow{..} = j
+
+
+jobs :: Connection -> IO [JobRow]
+jobs conn = query_ conn [sql|
+  SELECT
+    priority,
+    job_id,
+    job_class,
+    args,
+    (error_count > 0)::bool AS failed,
+    error_count,
+    queue,
+    retryable,
+    run_at > now() AS scheduled_for_future
+  FROM
+    que_jobs
+  |]
+
+failedJobs :: Connection -> IO [JobRow]
+failedJobs conn = query_ conn [sql|
+    SELECT
+      priority,
+      que_jobs.job_id,
+      job_class,
+      args,
+      (error_count > 0)::bool AS failed,
+      error_count,
+      queue,
+      retryable,
+      run_at > now() AS scheduled_for_future
+    FROM
+      que_jobs
+    LEFT JOIN (
+      SELECT
+        job_id
+      FROM que_jobs
+      JOIN (
+        SELECT
+          ((pg_locks.classid::bigint << 32) | pg_locks.objid::bigint) AS pg_lock_id
+        FROM
+          pg_locks
+        WHERE pg_locks.locktype = 'advisory'
+        AND pg_locks.objsubid = 1
+      ) l ON l.pg_lock_id = que_jobs.job_id
+    ) s ON s.job_id = que_jobs.job_id AND s.job_id IS NULL
+  |]

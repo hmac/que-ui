@@ -9,12 +9,10 @@ flags: {}
 extra-package-dbs: []
 
 image:
-  containers:
-    - base: alpine
-      name: que-ui
-      executables:
-      - que-ui
-      entrypoints:
+  container:
+    base: "fpco/ubuntu-with-libgmp:14.04"
+    name: que-ui
+    entrypoints:
       - que-ui
 
 docker:

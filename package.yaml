@@ -30,6 +30,7 @@ library:
     - text
     - time
     - containers
+    - aeson
 
 executables:
   que-ui:
@@ -49,6 +50,9 @@ executables:
     - raw-strings-qq
     - http-types
     - containers
+    - bytestring
+    - warp
+    - wai
 
 tests:
   que-ui-test:
