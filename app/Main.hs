@@ -11,6 +11,7 @@ import           Control.Exception                   (SomeException (..), catch,
 import           Control.Monad                       (void)
 import           Control.Monad.IO.Class              (liftIO)
 import qualified Data.ByteString                     as B
+import           Data.Maybe                          (isJust)
 import           Data.Maybe                          (catMaybes)
 import           Data.Text                           (Text)
 import qualified Data.Text                           as T
@@ -24,7 +25,6 @@ import           Network.Wai.Handler.Warp            (defaultSettings,
 import           Sql                                 (failedJobs, healthCheck,
                                                       jobs, queueSummary,
                                                       workers)
-import           Text.Printf                         (printf)
 import           Web.Scotty
 
 main :: IO ()
@@ -92,36 +92,36 @@ workersRoute conn = do
   json ws
 
 data Filter = Priority Text | Class Text | Queue Text deriving Eq
+data JobsFilter = JobsFilter
+  { filterPriority :: Maybe Int
+  , filterClass    :: Maybe Text
+  , filterQueue    :: Maybe Text
+  , filterFailed   :: Maybe Bool
+  }
 jobsRoute :: MVar Connection -> ActionM ()
 jobsRoute conn = do
-  priority <- fmap Priority <$> safeParam "priority"
-  jobClass <- fmap Class <$> safeParam "job_class"
-  queue <- fmap Queue <$> safeParam "queue"
+  priority <- safeParam "priority"
+  jobClass <- safeParam "job_class"
+  queue <- safeParam "queue"
   failed <- safeParam "failed"
-  let filters = catMaybes [priority, jobClass, queue]
-  case failed of
-    Just True -> failedJobsRoute conn filters
-    _         -> notFailedJobsRoute conn filters
-
-failedJobsRoute :: MVar Connection -> [Filter] -> ActionM ()
-failedJobsRoute conn _filters = do
+  let f = JobsFilter { filterPriority = priority, filterClass = jobClass, filterQueue = queue, filterFailed = failed }
   c <- liftIO $ readMVar conn
-  js <- liftIO $ failedJobs c
+  js <- liftIO $ jobs c (constructFilter f)
   json js
 
-notFailedJobsRoute :: MVar Connection -> [Filter] -> ActionM ()
-notFailedJobsRoute conn _filters = do
-  c <- liftIO $ readMVar conn
-  js <- liftIO $ jobs c
-  json js
-
--- TODO: this is dangerous and lame
-constructWhere :: [Text] -> Text
-constructWhere [] = ""
-constructWhere (c : cs) = T.concat [" WHERE ", c, " = ?", go cs]
-  where go :: [Text] -> Text
-        go []       = ""
-        go (d : ds) = T.concat [" AND ", d, " = ?", go ds]
+constructFilter :: JobsFilter -> (Bool, Maybe Int, Bool,
+                                  Bool, Maybe Text, Bool,
+                                  Bool, Maybe Text, Bool,
+                                  Bool, Maybe Bool, Bool)
+constructFilter filter = (byPriority, p, byPriority, byClass, c, byClass, byQueue, q, byQueue, byFailed, f, byFailed)
+  where p = filterPriority filter
+        c = filterClass filter
+        q = filterQueue filter
+        f = filterFailed filter
+        byPriority = isJust p
+        byClass = isJust c
+        byQueue = isJust q
+        byFailed = isJust f
 
 -- Like `param`, but when a parameter isn't present it
 -- returns Nothing instead of raising an exception.

@@ -11,6 +11,8 @@ import           Data.Time.Clock
 import           Database.PostgreSQL.Simple
 import           Database.PostgreSQL.Simple.FromRow
 import           Database.PostgreSQL.Simple.SqlQQ   (sql)
+import           Database.PostgreSQL.Simple.ToField
+import           Database.PostgreSQL.Simple.ToRow
 
 -- Hits the database to check that we still have a connection,
 -- then returns {"db": "ok", "api": "ok}
@@ -140,9 +142,17 @@ instance ToJSON JobRow where
     ]
       where JobRow{..} = j
 
+-- There's now ToRow instance for a 12 element tuple, so we declare one here
+-- TODO: remove this and use a dedicated type instead
+instance (ToField a, ToField b, ToField c, ToField d, ToField e, ToField f,
+          ToField g, ToField h, ToField i, ToField j, ToField k, ToField l)
+    => ToRow (a,b,c,d,e,f,g,h,i,j,k,l) where
+    toRow (a,b,c,d,e,f,g,h,i,j,k,l) =
+        [toField a, toField b, toField c, toField d, toField e, toField f,
+         toField g, toField h, toField i, toField j, toField k, toField l]
 
-jobs :: Connection -> IO [JobRow]
-jobs conn = query_ conn [sql|
+jobs :: Connection -> (Bool, Maybe Int, Bool, Bool, Maybe Text, Bool, Bool, Maybe Text, Bool, Bool, Maybe Bool, Bool) -> IO [JobRow]
+jobs conn filters = query conn [sql|
   SELECT
     priority,
     job_id,
@@ -155,7 +165,15 @@ jobs conn = query_ conn [sql|
     run_at > now() AS scheduled_for_future
   FROM
     que_jobs
-  |]
+  WHERE ((? = true AND priority = ?) OR (? = false))
+  AND   ((? = true AND job_class = ?) OR (? = false))
+  AND   ((? = true AND queue = ?) OR (? = false))
+  AND   ((? = true AND (error_count > 0) = ?) OR (? = false))
+  ORDER BY retryable::int DESC,
+           (run_at < now())::int DESC,
+           priority ASC, run_at ASC
+  LIMIT 100
+  |] filters
 
 failedJobs :: Connection -> IO [JobRow]
 failedJobs conn = query_ conn [sql|
