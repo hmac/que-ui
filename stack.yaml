@@ -6,14 +6,13 @@ extra-deps: []
 
 flags: {}
 
-extra-package-dbs: []
+docker:
+  enable: true
 
 image:
   container:
-    base: "fpco/ubuntu-with-libgmp:14.04"
-    name: que-ui
-    entrypoints:
-      - que-ui
+    base: "que-ui-base"
+    name: "que-ui"
 
-docker:
-  enable: false
+extra-package-dbs: []
+

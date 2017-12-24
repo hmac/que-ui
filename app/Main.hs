@@ -29,12 +29,39 @@ import           Web.Scotty
 
 main :: IO ()
 main = do
-  conn <- connectPostgreSQL "" >>= newMVar
-  forkIO (dbKeepalive 1000000 conn) -- 1 second sleep by default
+  putStrLn "starting Que UI..."
+  conn <- newEmptyMVar
+  forkIO $ do
+    establishConnection 100000 conn
+    dbKeepalive 1000000 conn -- 1 second sleep by default
   app conn
 
+-- Attempt to connect to the database, backing off using the given backoff function.
+monitorConnection :: Int -> (Int -> Int) -> IO Connection
+monitorConnection sleep backoff = do
+  threadDelay sleep
+  (c :: Either IOError Connection) <- try (connectPostgreSQL "")
+  case c of
+    Left _   -> threadDelay sleep >> monitorConnection (backoff sleep) backoff
+    Right c' -> return c'
+
+-- Establish a database connection and store it in the given (empty) MVar
+establishConnection :: Int -> MVar Connection -> IO ()
+establishConnection sleep connVar = do
+  conn <- monitorConnection sleep id
+  putMVar connVar conn
+  return ()
+
+-- Reconnect to the database and store the connection in the given MVar,
+-- replacing its previous contents.
+reEstablishConnection :: Int -> MVar Connection -> IO ()
+reEstablishConnection sleep connVar = do
+  conn <- monitorConnection sleep (* 2)
+  swapMVar connVar conn
+  return ()
+
 -- Poll the database connection, checking that it is still up
--- If it isn't, attempt to reconnect it, backing off exponentially
+-- If it isn't, attempt to reconnect, backing off exponentially
 dbKeepalive :: Int -> MVar Connection -> IO ()
 dbKeepalive sleep connVar = do
   threadDelay sleep
@@ -42,16 +69,19 @@ dbKeepalive sleep connVar = do
   (alive :: Either IOError [Only Int]) <- try (query_ c "SELECT 1")
   case alive of
     Right _ -> dbKeepalive sleep connVar
-    Left _ -> do
-      (res :: Either IOError Connection) <- try (connectPostgreSQL "")
-      case res of
-        Left _ -> dbKeepalive (sleep * 2) connVar
-        Right c' -> do
-          swapMVar connVar c'
-          dbKeepalive sleep connVar
+    Left _  -> reEstablishConnection sleep connVar
+
+-- Attempts to read the MVar, and throws an exception if the read would block
+readMVarNow :: MVar a -> IO a
+readMVarNow m = do
+  x <- tryReadMVar m
+  case x of
+    Just x' -> return x'
+    Nothing -> throw $ userError "attempted to read empty mvar"
 
 app :: MVar Connection -> IO ()
-app conn = scotty 3001 $ do
+app conn = scotty 8080 $ do
+    get "/hello" $ text "hello"
     get "/health_check" (healthCheckRoute conn)
     get "/queue-summary/:queue" (queueSummaryRoute conn)
     get "/queue-summary" (redirect "/queue-summary/")
@@ -61,13 +91,13 @@ app conn = scotty 3001 $ do
 
 healthCheckRoute :: MVar Connection -> ActionM ()
 healthCheckRoute conn = do
-  c <- liftIO $ readMVar conn
+  c <- liftIO $ readMVarNow conn
   s <- liftIO $ healthCheck c
   json s
 
 queueSummaryRoute :: MVar Connection -> ActionM ()
 queueSummaryRoute conn = do
-  c <- liftIO $ readMVar conn
+  c <- liftIO $ readMVarNow conn
   queue <- safeParam "queue"
   case queue of
     Nothing -> status status404
@@ -77,7 +107,7 @@ queueSummaryRoute conn = do
 
 workersRoute :: MVar Connection -> ActionM ()
 workersRoute conn = do
-  c <- liftIO $ readMVar conn
+  c <- liftIO $ readMVarNow conn
   ws <- liftIO $ workers c
   json ws
 
@@ -87,7 +117,7 @@ jobRoute conn = do
   case jobId of
     Nothing -> status status404
     Just i -> do
-      c <- liftIO $ readMVar conn
+      c <- liftIO $ readMVarNow conn
       j <- liftIO $ job c i
       json j
 
@@ -105,7 +135,7 @@ jobsRoute conn = do
   queue <- safeParam "queue"
   failed <- safeParam "failed"
   let f = JobsFilter { filterPriority = priority, filterClass = jobClass, filterQueue = queue, filterFailed = failed }
-  c <- liftIO $ readMVar conn
+  c <- liftIO $ readMVarNow conn
   js <- liftIO $ jobs c (constructFilter f)
   json js
 
