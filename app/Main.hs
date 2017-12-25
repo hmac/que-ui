@@ -4,30 +4,18 @@
 
 module Main where
 
-import           Control.Concurrent                  (forkIO, threadDelay)
+import           Control.Concurrent         (forkIO, threadDelay)
 import           Control.Concurrent.MVar
-import           Control.Exception                   (SomeException (..), catch,
-                                                      throw, try)
-import           Control.Monad                       (void)
-import           Control.Monad.IO.Class              (liftIO)
-import qualified Data.ByteString                     as B
-import           Data.Maybe                          (isJust)
-import           Data.Maybe                          (catMaybes)
-import           Data.Text                           (Text)
-import qualified Data.Text                           as T
-import qualified Data.Text.Lazy                      as L
+import           Control.Exception          (throw, try)
+import           Control.Monad.IO.Class     (liftIO)
+import qualified Data.Text.Lazy             as L
 import           Database.PostgreSQL.Simple
-import           Database.PostgreSQL.Simple.Internal (libPQError)
 import           Network.HTTP.Types.Status
-import           Network.Wai                         (Request)
-import           Network.Wai.Handler.Warp            (defaultSettings,
-                                                      setOnException, setPort)
-import           Sql                                 (JobsFilter (..),
-                                                      failureSummary,
-                                                      healthCheck, job, jobs,
-                                                      queueSummary, workers)
-import           System.IO                           (BufferMode (LineBuffering),
-                                                      hSetBuffering, stdout)
+import           Sql                        (JobsFilter (..), failureSummary,
+                                             healthCheck, job, jobs,
+                                             queueSummary, workers)
+import           System.IO                  (BufferMode (LineBuffering),
+                                             hSetBuffering, stdout)
 import           Web.Scotty
 
 main :: IO ()
