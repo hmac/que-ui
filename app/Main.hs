@@ -63,7 +63,10 @@ dbKeepalive sleep connVar = do
     Right _ -> dbKeepalive sleep connVar
     Left _  -> reEstablishConnection sleep connVar
 
--- Attempts to read the MVar, and throws an exception if the read would block
+-- Attempt to read the given MVar, and throw an exception if the read would block
+-- We use this when reading the database connection so that we'll throw an
+-- exception if we get an API request before the connection has been
+-- established.
 readMVarNow :: MVar a -> IO a
 readMVarNow m = do
   x <- tryReadMVar m
@@ -76,10 +79,10 @@ app conn = scotty 8080 $ do
     get "/health_check" (healthCheckRoute conn)
     get "/queue-summary/:queue" (queueSummaryRoute conn)
     get "/queue-summary" (redirect "/queue-summary/")
+    get "/failures" (failureSummaryRoute conn)
     get "/workers" (workersRoute conn)
     get "/jobs/:id" (jobRoute conn)
     get "/jobs" (jobsRoute conn)
-    get "/failures" (failureSummaryRoute conn)
 
     -- Static files
     -- TODO: fix this crap
