@@ -144,7 +144,7 @@ instance ToJSON JobRow where
       where JobRow{..} = j
 
 -- Get all jobs matching the filter
-jobs :: Connection -> JobsFilter -> IO [JobRow]
+jobs :: Connection -> JobFilter -> IO [JobRow]
 jobs conn f = query conn [sql|
   SELECT
     priority,
@@ -178,14 +178,14 @@ jobs conn f = query conn [sql|
   |] f
 -- The filter for the jobs query.
 -- If a field is empty, it will match jobs with any value.
-data JobsFilter = JobsFilter
+data JobFilter = JobFilter
   { filterPriority :: Maybe Int
   , filterClass    :: Maybe Text
   , filterQueue    :: Maybe Text
   , filterFailed   :: Maybe Bool
   }
-instance ToRow JobsFilter where
-  toRow JobsFilter {
+instance ToRow JobFilter where
+  toRow JobFilter {
     filterPriority = p
   , filterClass = c
   , filterQueue = q

@@ -11,7 +11,7 @@ import           Control.Monad.IO.Class     (liftIO)
 import qualified Data.Text.Lazy             as L
 import           Database.PostgreSQL.Simple
 import           Network.HTTP.Types.Status
-import           Sql                        (JobsFilter (..), failureSummary,
+import           Sql                        (JobFilter (..), failureSummary,
                                              healthCheck, job, jobs,
                                              queueSummary, workers)
 import           System.IO                  (BufferMode (LineBuffering),
@@ -139,7 +139,7 @@ jobsRoute conn = do
   jobClass <- safeParam "job_class"
   queue <- safeParam "queue"
   failed <- safeParam "failed"
-  let f = JobsFilter { filterPriority = priority
+  let f = JobFilter { filterPriority = priority
                      , filterClass = jobClass
                      , filterQueue = queue
                      , filterFailed = failed
