@@ -22,13 +22,16 @@ import           Network.HTTP.Types.Status
 import           Network.Wai                         (Request)
 import           Network.Wai.Handler.Warp            (defaultSettings,
                                                       setOnException, setPort)
-import           Sql                                 (failedJobs, healthCheck,
-                                                      job, jobs, queueSummary,
-                                                      workers)
+import           Sql                                 (failureSummary,
+                                                      healthCheck, job, jobs,
+                                                      queueSummary, workers)
+import           System.IO                           (BufferMode (LineBuffering),
+                                                      hSetBuffering, stdout)
 import           Web.Scotty
 
 main :: IO ()
 main = do
+  hSetBuffering stdout LineBuffering
   putStrLn "starting Que UI..."
   conn <- newEmptyMVar
   forkIO $ do
@@ -81,13 +84,24 @@ readMVarNow m = do
 
 app :: MVar Connection -> IO ()
 app conn = scotty 8080 $ do
-    get "/hello" $ text "hello"
     get "/health_check" (healthCheckRoute conn)
     get "/queue-summary/:queue" (queueSummaryRoute conn)
     get "/queue-summary" (redirect "/queue-summary/")
     get "/workers" (workersRoute conn)
     get "/jobs/:id" (jobRoute conn)
     get "/jobs" (jobsRoute conn)
+    get "/failures" (failureSummaryRoute conn)
+
+    -- Static files
+    -- TODO: fix this crap
+    get "/" $ file "/opt/app/client/index.html"
+    get (literal "/vendor/js/system.js") $ file "/opt/app/client/vendor/js/system.js"
+    get (literal "/config.js") $ file "/opt/app/client/config.js"
+    get (literal "/build.js") $ file "/opt/app/client/build.js"
+    get (literal "/css/app.css") $ file "/opt/app/client/css/app.css"
+    get "/css/:file" $ param "file" >>= \f -> file ("/opt/app/client/css/" ++ f)
+    get "/js/:file" $ param "file" >>= \f -> file ("/opt/app/client/js/" ++ f)
+    get "/vendor/js/:file" $ param "file" >>= \f -> file ("/opt/app/client/vendor/js/" ++ f)
 
 healthCheckRoute :: MVar Connection -> ActionM ()
 healthCheckRoute conn = do
@@ -101,9 +115,18 @@ queueSummaryRoute conn = do
   queue <- safeParam "queue"
   case queue of
     Nothing -> status status404
+    Just "_default" -> do
+      summary <- liftIO $ queueSummary c ""
+      json summary
     Just q -> do
       summary <- liftIO $ queueSummary c q
       json summary
+
+failureSummaryRoute :: MVar Connection -> ActionM ()
+failureSummaryRoute conn = do
+  c <- liftIO $ readMVarNow conn
+  summary <- liftIO $ failureSummary c
+  json summary
 
 workersRoute :: MVar Connection -> ActionM ()
 workersRoute conn = do

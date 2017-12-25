@@ -205,31 +205,40 @@ job conn jobId = do
     [j] -> return (Just j)
     _   -> return Nothing
 
-failedJobs :: Connection -> IO [JobRow]
-failedJobs conn = query_ conn [sql|
+-- A summary of all failed jobs
+data FailureRow = FailureRow {
+    failureClass        :: Text
+  , failureInactive     :: Int
+  , failurePendingRetry :: Int
+  }
+instance FromRow FailureRow where
+  fromRow = FailureRow <$> field <*> field <*> field
+instance ToJSON FailureRow where
+  toJSON r = object [
+      "job_class" .= failureClass
+    , "inactive" .= failureInactive
+    , "pending_retry" .= failurePendingRetry
+    ]
+      where FailureRow{..} = r
+failureSummary :: Connection -> IO [FailureRow]
+failureSummary conn = query_ conn [sql|
     SELECT
-      priority,
-      que_jobs.job_id,
       job_class,
-      args,
-      (error_count > 0)::bool AS failed,
-      error_count,
-      queue,
-      retryable,
-      run_at > now() AS scheduled_for_future
-    FROM
-      que_jobs
+      sum((NOT retryable)::int) AS inactive,
+      sum((error_count > 0 AND retryable)::int) AS pending_retry
+    FROM que_jobs
     LEFT JOIN (
       SELECT
-        job_id
-      FROM que_jobs
-      JOIN (
-        SELECT
-          ((pg_locks.classid::bigint << 32) | pg_locks.objid::bigint) AS pg_lock_id
-        FROM
-          pg_locks
-        WHERE pg_locks.locktype = 'advisory'
-        AND pg_locks.objsubid = 1
-      ) l ON l.pg_lock_id = que_jobs.job_id
-    ) s ON s.job_id = que_jobs.job_id AND s.job_id IS NULL
+        ((pg_locks.classid::bigint << 32) | pg_locks.objid::bigint) AS pg_lock_id
+      FROM
+        pg_locks
+      WHERE pg_locks.locktype = 'advisory'
+      AND pg_locks.objsubid = 1
+    ) l ON l.pg_lock_id = que_jobs.job_id
+    WHERE l.pg_lock_id IS NULL
+    AND ((NOT retryable) OR (error_count > 0 AND retryable))
+    GROUP BY
+      job_class
+    ORDER BY
+      sum(error_count) DESC
   |]
