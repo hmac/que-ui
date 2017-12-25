@@ -6,6 +6,7 @@ module Sql where
 
 import           Data.Aeson
 import qualified Data.Map.Strict                    as Map
+import           Data.Maybe                         (isJust)
 import           Data.Text
 import           Data.Time.Clock
 import           Database.PostgreSQL.Simple
@@ -142,17 +143,9 @@ instance ToJSON JobRow where
     ]
       where JobRow{..} = j
 
--- There's now ToRow instance for a 12 element tuple, so we declare one here
--- TODO: remove this and use a dedicated type instead
-instance (ToField a, ToField b, ToField c, ToField d, ToField e, ToField f,
-          ToField g, ToField h, ToField i, ToField j, ToField k, ToField l)
-    => ToRow (a,b,c,d,e,f,g,h,i,j,k,l) where
-    toRow (a,b,c,d,e,f,g,h,i,j,k,l) =
-        [toField a, toField b, toField c, toField d, toField e, toField f,
-         toField g, toField h, toField i, toField j, toField k, toField l]
-
-jobs :: Connection -> (Bool, Maybe Int, Bool, Bool, Maybe Text, Bool, Bool, Maybe Text, Bool, Bool, Maybe Bool, Bool) -> IO [JobRow]
-jobs conn filters = query conn [sql|
+-- Get all jobs matching the filter
+jobs :: Connection -> JobsFilter -> IO [JobRow]
+jobs conn f = query conn [sql|
   SELECT
     priority,
     job_id,
@@ -182,8 +175,28 @@ jobs conn filters = query conn [sql|
            (run_at < now())::int DESC,
            priority ASC, run_at ASC
   LIMIT 100
-  |] filters
+  |] f
+-- The filter for the jobs query.
+-- If a field is empty, it will match jobs with any value.
+data JobsFilter = JobsFilter
+  { filterPriority :: Maybe Int
+  , filterClass    :: Maybe Text
+  , filterQueue    :: Maybe Text
+  , filterFailed   :: Maybe Bool
+  }
+instance ToRow JobsFilter where
+  toRow JobsFilter {
+    filterPriority = p
+  , filterClass = c
+  , filterQueue = q
+  , filterFailed = f
+  }  = [toField byP, toField p, toField byP,
+        toField byC, toField c, toField byC,
+        toField byQ, toField q, toField byQ,
+        toField byF, toField f, toField byF]
+    where (byP, byC, byQ, byF) = (isJust p, isJust c, isJust q, isJust f)
 
+-- A single job
 job :: Connection -> Int -> IO (Maybe JobRow)
 job conn jobId = do
   js <- query conn [sql|
@@ -205,7 +218,6 @@ job conn jobId = do
     [j] -> return (Just j)
     _   -> return Nothing
 
--- A summary of all failed jobs
 data FailureRow = FailureRow {
     failureClass        :: Text
   , failureInactive     :: Int
@@ -220,6 +232,7 @@ instance ToJSON FailureRow where
     , "pending_retry" .= failurePendingRetry
     ]
       where FailureRow{..} = r
+-- A summary of all failed jobs
 failureSummary :: Connection -> IO [FailureRow]
 failureSummary conn = query_ conn [sql|
     SELECT

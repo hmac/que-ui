@@ -22,7 +22,8 @@ import           Network.HTTP.Types.Status
 import           Network.Wai                         (Request)
 import           Network.Wai.Handler.Warp            (defaultSettings,
                                                       setOnException, setPort)
-import           Sql                                 (failureSummary,
+import           Sql                                 (JobsFilter (..),
+                                                      failureSummary,
                                                       healthCheck, job, jobs,
                                                       queueSummary, workers)
 import           System.IO                           (BufferMode (LineBuffering),
@@ -144,37 +145,21 @@ jobRoute conn = do
       j <- liftIO $ job c i
       json j
 
-data Filter = Priority Text | Class Text | Queue Text deriving Eq
-data JobsFilter = JobsFilter
-  { filterPriority :: Maybe Int
-  , filterClass    :: Maybe Text
-  , filterQueue    :: Maybe Text
-  , filterFailed   :: Maybe Bool
-  }
 jobsRoute :: MVar Connection -> ActionM ()
 jobsRoute conn = do
   priority <- safeParam "priority"
   jobClass <- safeParam "job_class"
   queue <- safeParam "queue"
   failed <- safeParam "failed"
-  let f = JobsFilter { filterPriority = priority, filterClass = jobClass, filterQueue = queue, filterFailed = failed }
+  let f = JobsFilter { filterPriority = priority
+                     , filterClass = jobClass
+                     , filterQueue = queue
+                     , filterFailed = failed
+                     }
   c <- liftIO $ readMVarNow conn
-  js <- liftIO $ jobs c (constructFilter f)
+  js <- liftIO $ jobs c f
   json js
 
-constructFilter :: JobsFilter -> (Bool, Maybe Int, Bool,
-                                  Bool, Maybe Text, Bool,
-                                  Bool, Maybe Text, Bool,
-                                  Bool, Maybe Bool, Bool)
-constructFilter filter = (byPriority, p, byPriority, byClass, c, byClass, byQueue, q, byQueue, byFailed, f, byFailed)
-  where p = filterPriority filter
-        c = filterClass filter
-        q = filterQueue filter
-        f = filterFailed filter
-        byPriority = isJust p
-        byClass = isJust c
-        byQueue = isJust q
-        byFailed = isJust f
 
 -- Like `param`, but when a parameter isn't present it
 -- returns Nothing instead of raising an exception.
