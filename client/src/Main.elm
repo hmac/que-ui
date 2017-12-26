@@ -105,7 +105,7 @@ navigate { hash } =
             getWorkers GotWorkers
 
         _ ->
-            Cmd.none
+            getSummaries GotSummaries
 
 
 view : Model -> Html Msg

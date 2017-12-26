@@ -1,3 +1,4 @@
 .stack-work/
 *~
 /client/elm-stuff
+/client/app.js

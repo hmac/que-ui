@@ -88,7 +88,7 @@ app conn = scotty 8080 $ do
     -- TODO: fix this crap
     -- Local (non-docker) development:
     get "/" $ file "./client/index.html"
-    get (literal "/elm.js") $ file "./client/elm.js"
+    get (literal "/app.js") $ file "./client/app.js"
     get (literal "/css/app.css") $ file "./client/css/app.css"
     get "/css/:file" $ param "file" >>= \f -> file ("./client/css/" ++ f)
 
