@@ -1,19 +1,19 @@
 module Main exposing (..)
 
 import Html exposing (Html, div, text, section, header, h1, nav, a)
-import Html.Attributes exposing (class, id)
-import Html.Events exposing (onClick)
+import Html.Attributes exposing (class, id, href)
 import Http
 import JobList exposing (Job, renderJobList, getJobs)
 import WorkerList exposing (Worker, renderWorkerList, getWorkers)
 import QueueSummary exposing (Summary, getSummaries, renderQueueSummary)
 import FailureList exposing (Failure, getFailures, renderFailureList)
 import Time
+import Navigation
 
 
-main : Platform.Program Basics.Never Model Msg
+main : Program Never Model Msg
 main =
-    Html.program
+    Navigation.program UrlChange
         { init = init
         , view = view
         , update = update
@@ -22,31 +22,24 @@ main =
 
 
 subscriptions : Model -> Sub Msg
-subscriptions model =
-    case model of
-        JobList _ ->
-            Time.every Time.second (\_ -> Navigate JobListRoute)
-
-        WorkerList _ ->
-            Time.every Time.second (\_ -> Navigate WorkerListRoute)
-
-        QueueSummary _ ->
-            Time.every Time.second (\_ -> Navigate QueueSummaryRoute)
-
-        FailureList _ ->
-            Time.every Time.second (\_ -> Navigate FailureListRoute)
+subscriptions { history } =
+    Time.every Time.second (\_ -> Refresh)
 
 
-init : ( Model, Cmd Msg )
-init =
-    ( QueueSummary { summaries = [] }, getSummaries GotSummaries )
+init : Navigation.Location -> ( Model, Cmd Msg )
+init loc =
+    ( { current = loc, history = [], items = QueueSummary [] }, navigate loc )
 
 
-type Model
-    = JobList { jobs : List Job }
-    | WorkerList { workers : List Worker }
-    | QueueSummary { summaries : List Summary }
-    | FailureList { failures : List Failure }
+type alias Model =
+    { current : Navigation.Location, history : List Navigation.Location, items : ItemList }
+
+
+type ItemList
+    = JobList (List Job)
+    | WorkerList (List Worker)
+    | QueueSummary (List Summary)
+    | FailureList (List Failure)
 
 
 type Msg
@@ -55,14 +48,8 @@ type Msg
     | GotWorkers (Result Http.Error (List Worker))
     | GotSummaries (Result Http.Error (List Summary))
     | GotFailures (Result Http.Error (List Failure))
-    | Navigate Route
-
-
-type Route
-    = JobListRoute
-    | WorkerListRoute
-    | QueueSummaryRoute
-    | FailureListRoute
+    | Refresh
+    | UrlChange Navigation.Location
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
@@ -72,58 +59,71 @@ update msg model =
             ( model, Cmd.none )
 
         GotJobs (Ok jobs) ->
-            ( JobList { jobs = jobs }, Cmd.none )
+            ( { model | items = JobList jobs }, Cmd.none )
 
         GotJobs _ ->
             ( model, Cmd.none )
 
         GotWorkers (Ok workers) ->
-            ( WorkerList { workers = workers }, Cmd.none )
+            ( { model | items = WorkerList workers }, Cmd.none )
 
         GotWorkers (Err e) ->
             ( model, Cmd.none )
 
         GotSummaries (Ok summaries) ->
-            ( QueueSummary { summaries = summaries }, Cmd.none )
+            ( { model | items = QueueSummary summaries }, Cmd.none )
 
         GotSummaries (Err e) ->
             ( model, Cmd.none )
 
         GotFailures (Ok failures) ->
-            ( FailureList { failures = failures }, Cmd.none )
+            ( { model | items = FailureList failures }, Cmd.none )
 
         GotFailures (Err e) ->
             ( model, Cmd.none )
 
-        Navigate JobListRoute ->
-            ( model, getJobs GotJobs )
+        Refresh ->
+            ( model, navigate model.current )
 
-        Navigate WorkerListRoute ->
-            ( model, getWorkers GotWorkers )
+        UrlChange loc ->
+            ( { model | current = loc, history = model.current :: model.history }, navigate loc )
 
-        Navigate QueueSummaryRoute ->
-            ( model, getSummaries GotSummaries )
 
-        Navigate FailureListRoute ->
-            ( model, getFailures GotFailures )
+navigate : Navigation.Location -> Cmd Msg
+navigate { hash } =
+    case hash of
+        "#/queue-summary" ->
+            getSummaries GotSummaries
+
+        "#/jobs" ->
+            getJobs GotJobs
+
+        "#/failures" ->
+            getFailures GotFailures
+
+        "#/workers" ->
+            getWorkers GotWorkers
+
+        _ ->
+            Cmd.none
 
 
 view : Model -> Html Msg
 view m =
     let
         content =
-            case m of
-                JobList { jobs } ->
-                    renderJobList jobs
+            case m.items of
+                JobList items ->
+                    renderJobList items
 
-                WorkerList { workers } ->
-                    renderWorkerList workers
+                WorkerList items ->
+                    renderWorkerList items
 
-                QueueSummary { summaries } ->
-                    renderQueueSummary summaries
+                QueueSummary items ->
+                    renderQueueSummary items
 
-                FailureList { failures } ->
-                    renderFailureList failures
+                FailureList items ->
+                    renderFailureList items
     in
         div [ id "container" ]
             [ section [ class "app" ]
@@ -142,9 +142,13 @@ view m =
 
 navigation : Html Msg
 navigation =
-    nav [ class "u-pull-left app-header__nav" ]
-        [ a [ class "app-header__nav__link", onClick (Navigate QueueSummaryRoute) ] [ text "Queue Summary" ]
-        , a [ class "app-header__nav__link", onClick (Navigate WorkerListRoute) ] [ text "Workers" ]
-        , a [ class "app-header__nav__link", onClick (Navigate JobListRoute) ] [ text "Job List" ]
-        , a [ class "app-header__nav__link", onClick (Navigate FailureListRoute) ] [ text "Failures" ]
-        ]
+    let
+        link url label =
+            a [ class "app-header__nav__link", href url ] [ text label ]
+    in
+        nav [ class "u-pull-left app-header__nav" ]
+            [ link "#/queue-summary" "Queue Summary"
+            , link "#/workers" "Workers"
+            , link "#/jobs" "Job List"
+            , link "#/failures" "Failures"
+            ]
