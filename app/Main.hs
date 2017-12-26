@@ -86,14 +86,25 @@ app conn = scotty 8080 $ do
 
     -- Static files
     -- TODO: fix this crap
-    get "/" $ file "/opt/app/client/index.html"
-    get (literal "/vendor/js/system.js") $ file "/opt/app/client/vendor/js/system.js"
-    get (literal "/config.js") $ file "/opt/app/client/config.js"
-    get (literal "/build.js") $ file "/opt/app/client/build.js"
-    get (literal "/css/app.css") $ file "/opt/app/client/css/app.css"
-    get "/css/:file" $ param "file" >>= \f -> file ("/opt/app/client/css/" ++ f)
-    get "/js/:file" $ param "file" >>= \f -> file ("/opt/app/client/js/" ++ f)
-    get "/vendor/js/:file" $ param "file" >>= \f -> file ("/opt/app/client/vendor/js/" ++ f)
+    -- Local (non-docker) development:
+    get "/" $ file "./client/index.html"
+    get (literal "/elm.js") $ file "./client/elm.js"
+    get (literal "/css/app.css") $ file "./client/css/app.css"
+    get "/css/:file" $ param "file" >>= \f -> file ("./client/css/" ++ f)
+
+    -- Production
+    -- get (literal "/elm.js") $ file "/opt/app/client/elm.js"
+    -- get (literal "/css/app.css") $ file "opt/app/client/css/app.css"
+    -- get "/css/:file" $ param "file" >>= \f -> file ("opt/app/client/css/" ++ f)
+
+    -- Old stuff
+    -- get (literal "/vendor/js/system.js") $ file "/opt/app/client/vendor/js/system.js"
+    -- get (literal "/config.js") $ file "/opt/app/client/config.js"
+    -- get (literal "/build.js") $ file "/opt/app/client/build.js"
+    -- get (literal "/css/app.css") $ file "./client/css/app.css"
+    -- get "/css/:file" $ param "file" >>= \f -> file ("./client/css/" ++ f)
+    -- get "/js/:file" $ param "file" >>= \f -> file ("/opt/app/client/js/" ++ f)
+    -- get "/vendor/js/:file" $ param "file" >>= \f -> file ("/opt/app/client/vendor/js/" ++ f)
 
 healthCheckRoute :: MVar Connection -> ActionM ()
 healthCheckRoute conn = do
