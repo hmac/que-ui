@@ -38,7 +38,6 @@ library
     , time
     , aeson
   exposed-modules:
-      Lib
       Sql
   other-modules:
       Paths_que_ui
