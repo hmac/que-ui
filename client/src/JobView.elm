@@ -2,7 +2,7 @@ module JobView exposing (..)
 
 import JobList exposing (Job, decodeJob, status, Status(..), formatQueue)
 import Http exposing (Error, get, send)
-import Html exposing (Html, div, text, span, button)
+import Html exposing (Html, div, text, span, button, code, pre)
 import Html.Attributes exposing (class, classList, title, style)
 
 
@@ -28,7 +28,7 @@ renderJobView j =
         div [ class "job-detail" ]
             [ div [ class "row" ]
                 [ span [ class "job-detail__id two columns" ] [ text ("Job " ++ toString j.id) ]
-                , span [ class "job-detail__title two columns" ] [ text (toString j.class) ]
+                , span [ class "job-detail__title eight columns" ] [ text j.class ]
                 , span [ class "two columns" ]
                     [ span
                         [ classList
@@ -38,7 +38,7 @@ renderJobView j =
                             , ( "job-detail__status--inactive", status j == Inactive )
                             ]
                         ]
-                        [ text (toString j.class) ]
+                        [ j |> status |> toString |> text ]
                     ]
                 ]
             , div [ class "row" ]
@@ -70,9 +70,11 @@ renderJobView j =
             , div [ class "row" ]
                 [ span [ class "one columns" ] []
                 , span [ class "job-detail__key two columns" ] [ text "Arguments" ]
-                , span [ class "job-detail__value eight columns" ] [ text (toString j.args) ]
+                , span [ class "job-detail__value eight columns" ]
+                    [ code [] [ text (toString j.args) ]
+                    ]
                 ]
-            , text "(last_error goes here)"
+            , renderLastError j
             , div [ class "row" ]
                 [ span [ class "twelve columns", style [ ( "textAlign", "center" ) ] ]
                     [ retryButton
@@ -80,6 +82,17 @@ renderJobView j =
                     ]
                 ]
             ]
+
+
+renderLastError : Job -> Html msg
+renderLastError job =
+    div [ class "row" ]
+        [ span [ class "one columns" ] []
+        , span [ class "job-detail__key two columns" ] [ text "Last error" ]
+        , span [ class "job-detail__value eight columns" ]
+            [ pre [] [ text "(last_error goes here)" ]
+            ]
+        ]
 
 
 getJob : Int -> (Result Error Job -> msg) -> Cmd msg

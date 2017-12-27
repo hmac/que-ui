@@ -110,6 +110,9 @@ update msg model =
 navigate : Navigation.Location -> Cmd Msg
 navigate loc =
     case loc.hash of
+        "" ->
+            getSummaries GotSummaries
+
         "#/queue-summary" ->
             getSummaries GotSummaries
 
@@ -128,7 +131,12 @@ navigate loc =
                     getJob i GotJob
 
                 r ->
-                    Debug.crash (toString r)
+                    Debug.crash
+                        ("loc: "
+                            ++ (toString loc)
+                            ++ " parsed: "
+                            ++ (toString r)
+                        )
 
 
 view : Model -> Html Msg
