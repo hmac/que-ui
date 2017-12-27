@@ -2,10 +2,12 @@ module JobList exposing (..)
 
 import Html exposing (Html, div, text, span, tr, td, th, table, thead, tbody, section, code, header, h1, nav, a)
 import Html.Attributes exposing (class, classList, id)
+import Html.Events exposing (onClick)
 import Http exposing (Error, get, send)
 import Json.Decode exposing (int, string, bool, list, value, Value, Decoder)
 import Json.Decode.Pipeline exposing (decode, required)
 import String exposing (join)
+import Navigation
 
 
 type alias Job =
@@ -39,6 +41,7 @@ type Status
     = Scheduled
     | Queued
     | Inactive
+    | Destroyed
 
 
 status : Job -> Status
@@ -54,8 +57,8 @@ status { retryable, scheduledForFuture } =
             Inactive
 
 
-renderJobList : List Job -> Html msg
-renderJobList jobs =
+renderJobList : List Job -> (String -> msg) -> Html msg
+renderJobList jobs changePage =
     case jobs of
         [] ->
             div [ class "cleanscreen-message" ] [ text "No workers currently active" ]
@@ -76,13 +79,16 @@ renderJobList jobs =
                             , row "job-list-errors" "Errors"
                             ]
                         ]
-                    , tbody [] (List.map renderJob js)
+                    , tbody [] (List.map (renderJob changePage) js)
                     ]
 
 
-renderJob : Job -> Html a
-renderJob j =
-    tr [ class "table-row table-row--link" ]
+renderJob : (String -> msg) -> Job -> Html msg
+renderJob changePage j =
+    tr
+        [ class "table-row table-row--link"
+        , onClick (changePage ("#/jobs/" ++ toString j.id))
+        ]
         [ td
             [ classList
                 [ ( "table-cell", True )

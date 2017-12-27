@@ -49,10 +49,10 @@ renderWorker w =
         labelledCell val label =
             span [ class "two columns" ]
                 [ span [ class "grid-cell-value" ] [ text (toString val) ]
-                , span [ class "grid-cell-value" ] [ text label ]
+                , span [ class "grid-cell-label" ] [ text label ]
                 ]
     in
-        div [ class "grid-row" ]
+        div [ class "grid-row row" ]
             [ a [ class "grid-row-link twelve columns" ]
                 [ span [ class "grid-cell-text four columns" ] [ text w.class ]
                 , labelledCell w.pid "pid"

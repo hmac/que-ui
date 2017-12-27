@@ -7,8 +7,10 @@ import JobList exposing (Job, renderJobList, getJobs)
 import WorkerList exposing (Worker, renderWorkerList, getWorkers)
 import QueueSummary exposing (Summary, getSummaries, renderQueueSummary)
 import FailureList exposing (Failure, getFailures, renderFailureList)
+import JobView exposing (getJob, renderJobView)
 import Time
 import Navigation
+import UrlParser exposing ((</>), parseHash, int, s)
 
 
 main : Program Never Model Msg
@@ -22,17 +24,17 @@ main =
 
 
 subscriptions : Model -> Sub Msg
-subscriptions { history } =
+subscriptions _ =
     Time.every Time.second (\_ -> Refresh)
 
 
 init : Navigation.Location -> ( Model, Cmd Msg )
 init loc =
-    ( { current = loc, history = [], items = QueueSummary [] }, navigate loc )
+    ( { current = loc, items = QueueSummary [] }, navigate loc )
 
 
 type alias Model =
-    { current : Navigation.Location, history : List Navigation.Location, items : ItemList }
+    { current : Navigation.Location, items : ItemList }
 
 
 type ItemList
@@ -40,6 +42,7 @@ type ItemList
     | WorkerList (List Worker)
     | QueueSummary (List Summary)
     | FailureList (List Failure)
+    | JobView Job
 
 
 type Msg
@@ -48,7 +51,9 @@ type Msg
     | GotWorkers (Result Http.Error (List Worker))
     | GotSummaries (Result Http.Error (List Summary))
     | GotFailures (Result Http.Error (List Failure))
+    | GotJob (Result Http.Error Job)
     | Refresh
+    | ChangePage String
     | UrlChange Navigation.Location
 
 
@@ -82,16 +87,29 @@ update msg model =
         GotFailures (Err e) ->
             ( model, Cmd.none )
 
+        GotJob (Ok job) ->
+            ( { model | items = JobView job }, Cmd.none )
+
+        GotJob (Err r) ->
+            ( model, Cmd.none )
+
         Refresh ->
             ( model, navigate model.current )
 
+        ChangePage url ->
+            ( model, Navigation.newUrl url )
+
         UrlChange loc ->
-            ( { model | current = loc, history = model.current :: model.history }, navigate loc )
+            ( { model | current = loc }, navigate loc )
+
+
+
+-- TODO: use proper URL parsing here
 
 
 navigate : Navigation.Location -> Cmd Msg
-navigate { hash } =
-    case hash of
+navigate loc =
+    case loc.hash of
         "#/queue-summary" ->
             getSummaries GotSummaries
 
@@ -105,7 +123,12 @@ navigate { hash } =
             getWorkers GotWorkers
 
         _ ->
-            getSummaries GotSummaries
+            case parseHash (s "jobs" </> int) loc of
+                Just i ->
+                    getJob i GotJob
+
+                r ->
+                    Debug.crash (toString r)
 
 
 view : Model -> Html Msg
@@ -114,7 +137,7 @@ view m =
         content =
             case m.items of
                 JobList items ->
-                    renderJobList items
+                    renderJobList items ChangePage
 
                 WorkerList items ->
                     renderWorkerList items
@@ -124,6 +147,9 @@ view m =
 
                 FailureList items ->
                     renderFailureList items
+
+                JobView job ->
+                    renderJobView job
     in
         div [ id "container" ]
             [ section [ class "app" ]
