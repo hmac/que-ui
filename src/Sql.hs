@@ -116,28 +116,35 @@ queueSummary conn queue = query conn [sql|
 
 data JobRow = JobRow {
     jobPriority           :: Int
+  , jobRunAt              :: UTCTime
   , jobId                 :: Int
   , jobClass              :: Text
   , jobArgs               :: Value
-  , jobFailed             :: Bool
   , jobErrorCount         :: Int
+  , jobLastError          :: Maybe Text
   , jobQueue              :: Text
   , jobRetryable          :: Bool
+  , jobFailedAt           :: Maybe UTCTime
+  , jobFailed             :: Bool
   , jobScheduledForFuture :: Bool
   }
 instance FromRow JobRow where
   fromRow = JobRow <$> field <*> field <*> field
                    <*> field <*> field <*> field
                    <*> field <*> field <*> field
+                   <*> field <*> field <*> field
 instance ToJSON JobRow where
   toJSON j = object [
       "priority" .= jobPriority
+    , "run_at" .= jobRunAt
     , "job_id" .= jobId
     , "job_class" .= jobClass
     , "args" .= jobArgs
-    , "failed" .= jobFailed
     , "error_count" .= jobErrorCount
+    , "last_error" .= jobLastError
     , "queue" .= jobQueue
+    , "failed_at" .= jobFailedAt
+    , "failed" .= jobFailed
     , "retryable" .= jobRetryable
     , "scheduled_for_future" .= jobScheduledForFuture
     ]
@@ -148,13 +155,16 @@ jobs :: Connection -> JobFilter -> IO [JobRow]
 jobs conn f = query conn [sql|
   SELECT
     priority,
+    run_at,
     job_id,
     job_class,
     args,
-    (error_count > 0)::bool AS failed,
     error_count,
+    last_error,
     queue,
     retryable,
+    failed_at,
+    (error_count > 0)::bool AS failed,
     run_at > now() AS scheduled_for_future
   FROM
     que_jobs
@@ -202,13 +212,16 @@ job conn jobId = do
   js <- query conn [sql|
     SELECT
       priority,
+      run_at,
       job_id,
       job_class,
       args,
-      (error_count > 0)::bool AS failed,
       error_count,
+      last_error,
       queue,
       retryable,
+      failed_at,
+      (error_count > 0)::bool AS failed,
       run_at > now() AS scheduled_for_future
     FROM que_jobs
     WHERE job_id = ?
