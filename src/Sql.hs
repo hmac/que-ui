@@ -70,15 +70,17 @@ workers conn = query_ conn [sql|
 data SummaryRow = SummaryRow {
     summaryClass        :: Text
   , summaryPriority     :: Int
+  , summaryRunAt        :: UTCTime
   , summaryCount        :: Int
   , summaryCountWorking :: Int
   }
 instance FromRow SummaryRow where
-  fromRow = SummaryRow <$> field <*> field <*> field <*> field
+  fromRow = SummaryRow <$> field <*> field <*> field <*> field <*> field
 instance ToJSON SummaryRow where
   toJSON r = object [
       "job_class" .= summaryClass
     , "priority" .= summaryPriority
+    , "run_at" .= summaryRunAt
     , "count" .= summaryCount
     , "count_working" .= summaryCountWorking
     ]
@@ -88,6 +90,7 @@ queueSummary conn queue = query conn [sql|
     SELECT
       job_class,
       priority,
+      min(run_at) as run_at,
       count(*) AS count,
       sum((s.job_id IS NOT NULL)::int) AS count_working
     FROM
@@ -226,6 +229,22 @@ job conn jobId = do
     FROM que_jobs
     WHERE job_id = ?
     LIMIT 1
+    |] [jobId]
+  case js of
+    [j] -> return (Just j)
+    _   -> return Nothing
+
+-- Retry a single job
+retryJob :: Connection -> Int -> IO (Maybe JobRow)
+retryJob conn jobId = do
+  js <- query conn [sql|
+    UPDATE
+      que_jobs
+    SET
+      retryable = true
+    WHERE
+      job_id = ?
+    RETURNING *
     |] [jobId]
   case js of
     [j] -> return (Just j)

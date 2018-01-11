@@ -47,7 +47,7 @@ executable que-ui
   main-is: Main.hs
   hs-source-dirs:
       app
-  ghc-options: -threaded -rtsopts -with-rtsopts=-N -with-rtsopts=-T
+  ghc-options: -threaded -rtsopts -with-rtsopts=-N -with-rtsopts=-T -Wall
   build-depends:
       aeson
     , base >=4.7 && <5

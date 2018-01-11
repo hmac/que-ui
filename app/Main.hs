@@ -13,7 +13,7 @@ import           Database.PostgreSQL.Simple
 import           Network.HTTP.Types.Status
 import           Sql                        (JobFilter (..), failureSummary,
                                              healthCheck, job, jobs,
-                                             queueSummary, workers)
+                                             queueSummary, retryJob, workers)
 import           System.IO                  (BufferMode (LineBuffering),
                                              hSetBuffering, stdout)
 import           Web.Scotty
@@ -23,7 +23,7 @@ main = do
   hSetBuffering stdout LineBuffering
   putStrLn "starting Que UI..."
   conn <- newEmptyMVar
-  forkIO $ do
+  _ <- forkIO $ do
     establishConnection 100000 conn
     dbKeepalive 1000000 conn -- 1 second sleep by default
   app conn
@@ -49,7 +49,7 @@ establishConnection sleep connVar = do
 reEstablishConnection :: Int -> MVar Connection -> IO ()
 reEstablishConnection sleep connVar = do
   conn <- monitorConnection sleep (* 2)
-  swapMVar connVar conn
+  _ <- swapMVar connVar conn
   return ()
 
 -- Poll the database connection, checking that it is still up
@@ -74,15 +74,22 @@ readMVarNow m = do
     Just x' -> return x'
     Nothing -> throw $ userError "attempted to read empty mvar"
 
+withCors :: ActionM () -> ActionM ()
+withCors a = do
+  setHeader "Access-Control-Allow-Origin" "*"
+  a
+
 app :: MVar Connection -> IO ()
 app conn = scotty 8080 $ do
-    get "/health_check" (healthCheckRoute conn)
-    get "/queue-summary/:queue" (queueSummaryRoute conn)
-    get "/queue-summary" (redirect "/queue-summary/")
-    get "/failures" (failureSummaryRoute conn)
-    get "/workers" (workersRoute conn)
-    get "/jobs/:id" (jobRoute conn)
-    get "/jobs" (jobsRoute conn)
+    get "/health_check" $ withCors(healthCheckRoute conn)
+    get "/queue-summary/:queue" $ withCors (queueSummaryRoute conn)
+    get "/queue-summary" $ withCors (redirect "/queue-summary/")
+    get "/failures" $ withCors (failureSummaryRoute conn)
+    get "/workers" $ withCors (workersRoute conn)
+    get "/jobs/:id" $ withCors (jobRoute conn)
+    post "/jobs/:id/retry" $ withCors (retryJobRoute conn)
+    get "/jobs" $ withCors (jobsRoute conn)
+
 
     -- Static files
     -- TODO: fix this crap
@@ -146,6 +153,17 @@ jobRoute conn = do
       c <- liftIO $ readMVarNow conn
       j <- liftIO $ job c i
       json j
+
+retryJobRoute :: MVar Connection -> ActionM ()
+retryJobRoute conn = do
+  jobId <- safeParam "id"
+  case jobId of
+    Nothing -> status status404
+    Just i -> do
+      c <- liftIO $ readMVarNow conn
+      j <- liftIO $ retryJob c i
+      json j
+
 
 jobsRoute :: MVar Connection -> ActionM ()
 jobsRoute conn = do

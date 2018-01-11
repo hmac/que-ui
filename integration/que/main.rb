@@ -47,6 +47,10 @@ Thread.new do
 end
 
 words = File.read("/usr/share/dict/words").lines.map(&:chomp).sample(1000)
+100.times do
+  CreateUser.enqueue(words.sample)
+  RemoveUser.enqueue(words.sample)
+end
 while true do
   CreateUser.enqueue(words.sample)
   RemoveUser.enqueue(words.sample)
