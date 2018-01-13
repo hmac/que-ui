@@ -101,7 +101,7 @@ failuresRoute conn = do
                         , filterFailed = Just True
                         }
       c <- liftIO $ readMVarNow conn
-      failures <- liftIO $ jobs c f
+      failures <- liftIO $ jobs f c
       json failures
 
 retryFailuresRoute :: Route
@@ -172,7 +172,7 @@ jobsRoute conn = do
                      , filterFailed = failed
                      }
   c <- liftIO $ readMVarNow conn
-  js <- liftIO $ jobs c f
+  js <- liftIO $ jobs f c
   json js
 
 -- Like `param`, but when a parameter isn't present it

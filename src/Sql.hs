@@ -30,7 +30,7 @@ data WorkerRow = WorkerRow {
   , workerPid            :: Int
   , workerStartedAt      :: UTCTime
   , workerProcessingTime :: Text
-  }
+  } deriving (Show, Eq)
 instance FromRow WorkerRow where
   fromRow = WorkerRow <$> field <*> field <*> field
                       <*> field <*> field <*> field
@@ -72,7 +72,7 @@ data SummaryRow = SummaryRow {
   , summaryRunAt        :: UTCTime
   , summaryCount        :: Int
   , summaryCountWorking :: Int
-  }
+  } deriving (Show, Eq)
 instance FromRow SummaryRow where
   fromRow = SummaryRow <$> field <*> field <*> field <*> field <*> field
 instance ToJSON SummaryRow where
@@ -129,7 +129,7 @@ data JobRow = JobRow {
   , jobFailedAt           :: Maybe UTCTime
   , jobFailed             :: Bool
   , jobScheduledForFuture :: Bool
-  }
+  } deriving (Show, Eq)
 instance FromRow JobRow where
   fromRow = JobRow <$> field <*> field <*> field
                    <*> field <*> field <*> field
@@ -153,8 +153,8 @@ instance ToJSON JobRow where
       where JobRow{..} = j
 
 -- Get all jobs matching the filter
-jobs :: Connection -> JobFilter -> IO [JobRow]
-jobs conn f = query conn [sql|
+jobs :: JobFilter -> Connection -> IO [JobRow]
+jobs f conn = query conn [sql|
   SELECT
     priority,
     run_at,
@@ -186,7 +186,6 @@ jobs conn f = query conn [sql|
   ORDER BY retryable::int DESC,
            (run_at < now())::int DESC,
            priority ASC, run_at ASC
-  LIMIT 100
   |] f
 -- The filter for the jobs query.
 -- If a field is empty, it will match jobs with any value.
@@ -195,7 +194,7 @@ data JobFilter = JobFilter
   , filterClass    :: Maybe Text
   , filterQueue    :: Maybe Text
   , filterFailed   :: Maybe Bool
-  }
+  } deriving (Show, Eq)
 instance ToRow JobFilter where
   toRow JobFilter {
     filterPriority = p
@@ -344,7 +343,7 @@ data FailureRow = FailureRow {
     failureClass        :: Text
   , failureInactive     :: Int
   , failurePendingRetry :: Int
-  }
+  } deriving (Show, Eq)
 instance FromRow FailureRow where
   fromRow = FailureRow <$> field <*> field <*> field
 instance ToJSON FailureRow where
