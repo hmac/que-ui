@@ -15,12 +15,11 @@ import           Database.PostgreSQL.Simple.SqlQQ   (sql)
 import           Database.PostgreSQL.Simple.ToField
 import           Database.PostgreSQL.Simple.ToRow
 
--- Hits the database to check that we still have a connection,
--- then returns {"db": "ok", "api": "ok}
-healthCheck :: Connection -> IO (Map.Map Text Text)
+-- Hits the database to check that we still have a connection
+healthCheck :: Connection -> IO Bool
 healthCheck conn = do
-  [Only s :: Only Text] <- query_ conn "select 'ok'::text"
-  return $ Map.insert "db" s (Map.singleton "api" "ok")
+  [Only s :: Only Bool] <- query_ conn "select true"
+  return s
 
 -- A summary of all active workers, showing what jobs they are working
 -- and how long they've been working them.
@@ -101,12 +100,12 @@ queueSummary conn queue = query conn [sql|
       FROM que_jobs
       JOIN (
         SELECT
-          ((pg_locks.classid::bigint << 32) | pg_locks.objid::bigint) AS pg_lock_id
+          ((pg_locks.classid::bigint << 32) | pg_locks.objid::bigint) AS lock_id
         FROM
           pg_locks
         WHERE pg_locks.locktype = 'advisory'
         AND pg_locks.objsubid = 1
-      ) l ON l.pg_lock_id = que_jobs.job_id
+      ) l ON l.lock_id = que_jobs.job_id
     ) s USING (job_id)
     WHERE
       queue = ?::text
@@ -173,17 +172,17 @@ jobs conn f = query conn [sql|
     que_jobs
   LEFT JOIN (
     SELECT
-      ((pg_locks.classid::bigint << 32) | pg_locks.objid::bigint) AS pg_lock_id
+      ((pg_locks.classid::bigint << 32) | pg_locks.objid::bigint) AS lock_id
     FROM
       pg_locks
     WHERE pg_locks.locktype = 'advisory'
     AND pg_locks.objsubid = 1
   ) l
-  ON l.pg_lock_id = que_jobs.job_id
+  ON l.lock_id = que_jobs.job_id
   WHERE ((? = true AND priority = ?) OR (? = false))
   AND   ((? = true AND job_class = ?) OR (? = false))
   AND   ((? = true AND queue = ?) OR (? = false))
-  AND   ((? = true AND (error_count > 0) = ? AND l.pg_lock_id IS NULL) OR (? = false))
+  AND   ((? = true AND (error_count > 0) = ? AND l.lock_id IS NULL) OR (? = false))
   ORDER BY retryable::int DESC,
            (run_at < now())::int DESC,
            priority ASC, run_at ASC
@@ -244,11 +243,102 @@ retryJob conn jobId = do
       retryable = true
     WHERE
       job_id = ?
-    RETURNING *
+    RETURNING
+      priority,
+      run_at,
+      job_id,
+      job_class,
+      args,
+      error_count,
+      last_error,
+      queue,
+      retryable,
+      failed_at,
+      (error_count > 0)::bool AS failed,
+      run_at > now() AS scheduled_for_future
     |] [jobId]
   case js of
     [j] -> return (Just j)
     _   -> return Nothing
+
+destroyJob :: Connection -> Int -> IO Bool
+destroyJob conn jobId = do
+  rows <- execute conn [sql| DELETE FROM que_jobs WHERE job_id = ?  |] [jobId]
+  return (rows /= 0)
+
+retryFailures :: Connection -> Text -> IO [JobRow]
+retryFailures conn jobClass = query conn [sql|
+    UPDATE
+      que_jobs
+    SET
+      retryable = true
+    FROM (
+      SELECT
+        l.lock_id
+      FROM que_jobs
+      LEFT JOIN (
+        SELECT classid::bigint << 32 | objid::bigint AS lock_id
+        FROM pg_locks
+        WHERE locktype = 'advisory'
+        AND objsubid = 1
+      ) l
+      ON l.lock_id = que_jobs.job_id
+    ) l
+    WHERE
+        job_class = ?
+    AND error_count > 0
+    AND retryable = false
+    AND l.lock_id IS NULL
+    RETURNING
+      priority,
+      run_at,
+      job_id,
+      job_class,
+      args,
+      error_count,
+      last_error,
+      queue,
+      retryable,
+      failed_at,
+      (error_count > 0)::bool AS failed,
+      run_at > now() AS scheduled_for_future
+    |] [jobClass]
+
+destroyFailures :: Connection -> Text -> IO [JobRow]
+destroyFailures conn jobClass = query conn [sql|
+    DELETE FROM
+      que_jobs
+    USING (
+      SELECT
+        l.lock_id
+      FROM que_jobs
+      LEFT JOIN (
+        SELECT classid::bigint << 32 | objid::bigint AS lock_id
+        FROM pg_locks
+        WHERE locktype = 'advisory'
+        AND objsubid = 1
+      ) l
+      ON l.lock_id = que_jobs.job_id
+    ) l
+    WHERE job_class = ?
+    AND
+      error_count > 0
+    AND
+      l.lock_id IS NULL
+    RETURNING
+      priority,
+      run_at,
+      job_id,
+      job_class,
+      args,
+      error_count,
+      last_error,
+      queue,
+      retryable,
+      failed_at,
+      (error_count > 0)::bool AS failed,
+      run_at > now() AS scheduled_for_future
+    |] [jobClass]
 
 data FailureRow = FailureRow {
     failureClass        :: Text
@@ -274,13 +364,13 @@ failureSummary conn = query_ conn [sql|
     FROM que_jobs
     LEFT JOIN (
       SELECT
-        ((pg_locks.classid::bigint << 32) | pg_locks.objid::bigint) AS pg_lock_id
+        ((pg_locks.classid::bigint << 32) | pg_locks.objid::bigint) AS lock_id
       FROM
         pg_locks
       WHERE pg_locks.locktype = 'advisory'
       AND pg_locks.objsubid = 1
-    ) l ON l.pg_lock_id = que_jobs.job_id
-    WHERE l.pg_lock_id IS NULL
+    ) l ON l.lock_id = que_jobs.job_id
+    WHERE l.lock_id IS NULL
     AND ((NOT retryable) OR (error_count > 0 AND retryable))
     GROUP BY
       job_class

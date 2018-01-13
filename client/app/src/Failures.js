@@ -1,6 +1,7 @@
 import React, { Component } from "react";
 import { connect } from "react-redux";
-import { fetchFailedJobs } from "./Actions.js";
+import { Link } from "react-router-dom";
+import { fetchFailedJobs, retryJobs, destroyJobs } from "./Actions.js";
 
 class Failures_ extends Component {
   render() {
@@ -9,15 +10,26 @@ class Failures_ extends Component {
       return <div className="cleanscreen-message">No failed jobs</div>;
     }
     const key = ({ job_class, priority }) => `${job_class}--${priority}`;
+    const retry = this.props.retry;
+    const destroy = this.props.destroy;
     return (
       <div className="grid">
         {
           failures.map((failure) => {
-            return <Failure key={key(failure)} {...failure} />;
+            return <Failure
+              key={key(failure)}
+              retry={ retry }
+              destroy={ destroy }
+              {...failure}
+            />;
           })
         }
       </div>
     );
+  }
+
+  componentWillMount() {
+    this.props.refresh();
   }
 
   componentDidMount() {
@@ -29,10 +41,11 @@ class Failures_ extends Component {
   }
 }
 
-const Failure = ({ job_class, pending_retry, inactive }) => {
+const Failure = ({ job_class, pending_retry, inactive, retry, destroy }) => {
+  const search = new URLSearchParams({ job_class, failed: true }).toString();
   return (
     <div className="grid-row row">
-      <a className="grid-row-link seven columns">
+      <Link to={ { pathname: "/jobs", search } } className="grid-row-link seven columns">
         <span className="six columns grid-cell-text">
           {job_class}
         </span>
@@ -44,12 +57,12 @@ const Failure = ({ job_class, pending_retry, inactive }) => {
           <span className="grid-cell-value">{inactive}</span>
           <span className="grid-cell-label">failed</span>
         </span>
-      </a>
+      </Link>
       <span className="five columns">
-        <button disabled={ inactive === 0 }>
+        <button disabled={ inactive === 0 } onClick={ () => retry(job_class) }>
           Retry { inactive } jobs
         </button>
-        <button className="danger" disabled={ inactive === 0 }>
+        <button className="danger" disabled={ inactive === 0 } onClick={ () => destroy(job_class) }>
           Delete { inactive } jobs
         </button>
       </span>
@@ -59,7 +72,13 @@ const Failure = ({ job_class, pending_retry, inactive }) => {
 
 const Failures = connect(
   ({ failures }) => { return { failures }; },
-  (dispatch) => { return { refresh: () => dispatch(fetchFailedJobs) }; }
+  (dispatch) => {
+    return {
+      refresh: () => dispatch(fetchFailedJobs),
+      retry: (job_class) => dispatch(retryJobs(job_class)),
+      destroy: (job_class) => dispatch(destroyJobs(job_class))
+    };
+  }
 )(Failures_);
 
 export default Failures;

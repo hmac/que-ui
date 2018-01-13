@@ -8,12 +8,15 @@ import           Control.Concurrent         (forkIO, threadDelay)
 import           Control.Concurrent.MVar
 import           Control.Exception          (throw, try)
 import           Control.Monad.IO.Class     (liftIO)
+import qualified Data.Map.Strict            as Map
 import qualified Data.Text.Lazy             as L
 import           Database.PostgreSQL.Simple
 import           Network.HTTP.Types.Status
-import           Sql                        (JobFilter (..), failureSummary,
+import           Sql                        (JobFilter (..), destroyFailures,
+                                             destroyJob, failureSummary,
                                              healthCheck, job, jobs,
-                                             queueSummary, retryJob, workers)
+                                             queueSummary, retryFailures,
+                                             retryJob, workers)
 import           System.IO                  (BufferMode (LineBuffering),
                                              hSetBuffering, stdout)
 import           Web.Scotty
@@ -85,41 +88,30 @@ app conn = scotty 8080 $ do
     get "/queue-summary/:queue" $ withCors (queueSummaryRoute conn)
     get "/queue-summary" $ withCors (redirect "/queue-summary/")
     get "/failures" $ withCors (failureSummaryRoute conn)
+    get "/failures/:job_class" $ withCors (failuresRoute conn)
+    post "/failures/:job_class/retry" $ withCors (retryFailuresRoute conn)
+    post "/failures/:job_class/destroy" $ withCors (destroyFailuresRoute conn)
     get "/workers" $ withCors (workersRoute conn)
     get "/jobs/:id" $ withCors (jobRoute conn)
     post "/jobs/:id/retry" $ withCors (retryJobRoute conn)
+    post "/jobs/:id/destroy" $ withCors (destroyJobRoute conn)
     get "/jobs" $ withCors (jobsRoute conn)
 
-
     -- Static files
-    -- TODO: fix this crap
-    -- Local (non-docker) development:
     get "/" $ file "./client/index.html"
     get (literal "/app.js") $ file "./client/app.js"
     get (literal "/css/app.css") $ file "./client/css/app.css"
     get "/css/:file" $ param "file" >>= \f -> file ("./client/css/" ++ f)
 
-    -- Production
-    -- get (literal "/elm.js") $ file "/opt/app/client/elm.js"
-    -- get (literal "/css/app.css") $ file "opt/app/client/css/app.css"
-    -- get "/css/:file" $ param "file" >>= \f -> file ("opt/app/client/css/" ++ f)
+type Route = MVar Connection -> ActionM ()
 
-    -- Old stuff
-    -- get (literal "/vendor/js/system.js") $ file "/opt/app/client/vendor/js/system.js"
-    -- get (literal "/config.js") $ file "/opt/app/client/config.js"
-    -- get (literal "/build.js") $ file "/opt/app/client/build.js"
-    -- get (literal "/css/app.css") $ file "./client/css/app.css"
-    -- get "/css/:file" $ param "file" >>= \f -> file ("./client/css/" ++ f)
-    -- get "/js/:file" $ param "file" >>= \f -> file ("/opt/app/client/js/" ++ f)
-    -- get "/vendor/js/:file" $ param "file" >>= \f -> file ("/opt/app/client/vendor/js/" ++ f)
-
-healthCheckRoute :: MVar Connection -> ActionM ()
+healthCheckRoute :: Route
 healthCheckRoute conn = do
   c <- liftIO $ readMVarNow conn
-  s <- liftIO $ healthCheck c
-  json s
+  up <- liftIO $ healthCheck c
+  json $ Map.insert "db" up (Map.singleton "api" True :: Map.Map L.Text Bool)
 
-queueSummaryRoute :: MVar Connection -> ActionM ()
+queueSummaryRoute :: Route
 queueSummaryRoute conn = do
   c <- liftIO $ readMVarNow conn
   queue <- safeParam "queue"
@@ -132,19 +124,54 @@ queueSummaryRoute conn = do
       summary <- liftIO $ queueSummary c q
       json summary
 
-failureSummaryRoute :: MVar Connection -> ActionM ()
+failureSummaryRoute :: Route
 failureSummaryRoute conn = do
   c <- liftIO $ readMVarNow conn
   summary <- liftIO $ failureSummary c
   json summary
 
-workersRoute :: MVar Connection -> ActionM ()
+failuresRoute :: Route
+failuresRoute conn = do
+  jobClass <- safeParam "job_class"
+  case jobClass of
+    Nothing -> status status404
+    Just jc -> do
+      let f = JobFilter { filterPriority = Nothing
+                        , filterClass = Just jc
+                        , filterQueue = Nothing
+                        , filterFailed = Just True
+                        }
+      c <- liftIO $ readMVarNow conn
+      failures <- liftIO $ jobs c f
+      json failures
+
+retryFailuresRoute :: Route
+retryFailuresRoute conn = do
+  jobClass <- safeParam "job_class"
+  case jobClass of
+    Nothing -> status status404
+    Just jc -> do
+      c <- liftIO $ readMVarNow conn
+      j <- liftIO $ retryFailures c jc
+      json j
+
+destroyFailuresRoute :: Route
+destroyFailuresRoute conn = do
+  jobClass <- safeParam "job_class"
+  case jobClass of
+    Nothing -> status status404
+    Just jc -> do
+      c <- liftIO $ readMVarNow conn
+      j <- liftIO $ destroyFailures c jc
+      json j
+
+workersRoute :: Route
 workersRoute conn = do
   c <- liftIO $ readMVarNow conn
   ws <- liftIO $ workers c
   json ws
 
-jobRoute :: MVar Connection -> ActionM ()
+jobRoute :: Route
 jobRoute conn = do
   jobId <- safeParam "id"
   case jobId of
@@ -154,7 +181,7 @@ jobRoute conn = do
       j <- liftIO $ job c i
       json j
 
-retryJobRoute :: MVar Connection -> ActionM ()
+retryJobRoute :: Route
 retryJobRoute conn = do
   jobId <- safeParam "id"
   case jobId of
@@ -164,8 +191,17 @@ retryJobRoute conn = do
       j <- liftIO $ retryJob c i
       json j
 
+destroyJobRoute :: Route
+destroyJobRoute conn = do
+  jobId <- safeParam "id"
+  case jobId of
+    Nothing -> status status404
+    Just i -> do
+      c <- liftIO $ readMVarNow conn
+      _ <- liftIO $ destroyJob c i
+      json ()
 
-jobsRoute :: MVar Connection -> ActionM ()
+jobsRoute :: Route
 jobsRoute conn = do
   priority <- safeParam "priority"
   jobClass <- safeParam "job_class"

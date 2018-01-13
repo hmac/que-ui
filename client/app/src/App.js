@@ -5,6 +5,8 @@ import QueueSummary from "./QueueSummary.js";
 import Jobs from "./Jobs.js";
 import Failures from "./Failures.js";
 import Job from "./Job.js";
+import Workers from "./Workers.js";
+import LastUpdated from "./LastUpdated.js"
 
 class App extends Component {
   render() {
@@ -17,8 +19,9 @@ class App extends Component {
             <Link to="/jobs" className="app-header__nav__link">All Jobs</Link>
             <Link to="/failures" className="app-header__nav__link">Failed Jobs</Link>
             <Link to="/workers" className="app-header__nav__link">Workers</Link>
-            <br className="u-cf" />
           </nav>
+          <LastUpdated className="app-header__nav__link u-pull-right"/>
+          <br className="u-cf" />
         </header>
         <section className="app-content">
           <Switch>
@@ -26,6 +29,7 @@ class App extends Component {
             <Route path="/jobs/:id" component={Job}/>
             <Route path="/jobs" component={Jobs}/>
             <Route path="/failures" component={Failures}/>
+            <Route path="/workers" component={Workers}/>
             <Route path="/" component={QueueSummary}/>
           </Switch>
         </section>

@@ -18,6 +18,10 @@ class QueueSummary_ extends Component {
     );
   }
 
+  componentWillMount() {
+    this.props.refresh();
+  }
+
   componentDidMount() {
     this.props.refresh();
     this.timer = setInterval(this.props.refresh, 1000);

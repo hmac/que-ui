@@ -31,8 +31,11 @@ class Jobs_ extends Component {
     );
   }
 
-  componentDidMount() {
+  componentWillMount() {
     this.props.refresh(this.props.location.search);
+  }
+
+  componentDidMount() {
     this.timer = setInterval(() => this.props.refresh(this.props.location.search), 1000);
   }
 

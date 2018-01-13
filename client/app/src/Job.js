@@ -1,16 +1,16 @@
 import React, { Component } from "react";
 import { connect } from "react-redux";
 import jobStatus from "./JobStatus"
-import { fetchJob } from "./Actions";
+import { fetchJob, retryJob, destroyJob } from "./Actions";
 
-const Retry = (status) => {
+const Retry = ({id, status, retry}) => {
   if (status !== "failed") { return null; }
-  return <button>Retry</button>;
+  return <button onClick={ () => { retry(id); } }>Retry</button>;
 };
 
-const Destroy = (status) => {
-  if (status !== "destroyed") { return null; }
-  return <button className="danger">Destroy</button>;
+const Destroy = ({id, status, destroy}) => {
+  if (status === "destroyed") { return null; }
+  return <button className="danger" onClick={ () => { destroy(id); } }>Destroy</button>;
 };
 
 class Job_ extends Component {
@@ -25,6 +25,10 @@ class Job_ extends Component {
         </span>
       </div>
     );
+  }
+
+  componentWillMount() {
+    this.props.refresh(this.props.id);
   }
 
   componentDidMount() {
@@ -99,8 +103,8 @@ class Job_ extends Component {
         { this.renderError(job.last_error) }
         <div className="row">
           <span className="twelve columns" style={{textAlign: "center"}}>
-            <Retry status={ status }/>
-            <Destroy status={ status }/>
+            <Retry id={ job.job_id } status={ status } retry={ this.props.retryJob }/>
+            <Destroy id={ job.job_id } status={ status } destroy={ this.props.destroyJob }/>
           </span>
         </div>
       </div>
@@ -110,7 +114,13 @@ class Job_ extends Component {
 
 const Job = connect(
   ({ job }, { match: { params: { id } } }) => { return { job, id }; },
-  (dispatch) => { return { refresh: (id) => dispatch(fetchJob(id)) }; }
+  (dispatch) => {
+    return {
+      refresh: (id) => dispatch(fetchJob(id)),
+      retryJob: (id) => dispatch(retryJob(id)),
+      destroyJob: (id) => dispatch(destroyJob(id)),
+    };
+  }
 )(Job_);
 
 export default Job;

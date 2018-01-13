@@ -18,7 +18,7 @@ class CreateUser < Que::Job
   include Que::Failure::NoRetry
   def run(name)
     puts "Creating user #{name}"
-    raise "Some error!" if rand(10) == 9
+    raise "Some error!" if rand(5) == 2
     User.create!(name: name)
     sleep 2
   end
@@ -26,7 +26,7 @@ end
 
 class RemoveUser < Que::Job
   def run(name)
-    raise "Some error!" if rand(10) == 9
+    raise "Some error!" if rand(5) == 2
     u = User.find_by(name: name)
     return if u.nil?
     puts "Removing user #{name}"
@@ -36,7 +36,19 @@ class RemoveUser < Que::Job
   end
 end
 
-Que.worker_count = 5
+module Workers
+  class RenameUser < Que::Job
+    include Que::Failure::NoRetry
+    def run(name)
+      u = User.find_by!(name: name)
+      puts "Updating name for user #{name}"
+      u.update!(name: "#{name}_#{name}")
+      sleep 2
+    end
+  end
+end
+
+Que.worker_count = 6
 Que.mode = :async
 
 Thread.new do
@@ -54,5 +66,6 @@ end
 while true do
   CreateUser.enqueue(words.sample)
   RemoveUser.enqueue(words.sample)
+  Workers::RenameUser.enqueue(words.sample)
   sleep 1
 end

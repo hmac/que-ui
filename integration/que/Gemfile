@@ -4,4 +4,5 @@ gem "activerecord"
 gem 'que', git: 'https://github.com/gocardless/que', tag: 'v0.11.8'
 gem 'que-failure', git: 'https://github.com/gocardless/que-failure', tag: 'v0.4.2'
 gem "pg"
+gem "pry"
 
