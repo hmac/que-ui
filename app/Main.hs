@@ -4,12 +4,15 @@
 
 module Main where
 
-import           Control.Concurrent         (forkIO, threadDelay)
+import           Control.Concurrent         (forkIO)
 import           Control.Concurrent.MVar
-import           Control.Exception          (throw, try)
+import           Control.Exception          (throw)
 import           Control.Monad.IO.Class     (liftIO)
 import qualified Data.Map.Strict            as Map
 import qualified Data.Text.Lazy             as L
+import           Database                   (dbKeepalive, defaultBackoff,
+                                             defaultInitialBackoff,
+                                             establishConnection)
 import           Database.PostgreSQL.Simple
 import           Network.HTTP.Types.Status
 import           Sql                        (JobFilter (..), destroyFailures,
@@ -19,6 +22,7 @@ import           Sql                        (JobFilter (..), destroyFailures,
                                              retryJob, workers)
 import           System.IO                  (BufferMode (LineBuffering),
                                              hSetBuffering, stdout)
+import           System.Remote.Monitoring   (forkServer)
 import           Web.Scotty
 
 main :: IO ()
@@ -27,64 +31,14 @@ main = do
   putStrLn "starting Que UI..."
   conn <- newEmptyMVar
   _ <- forkIO $ do
-    establishConnection 100000 conn
-    dbKeepalive 1000000 conn -- 1 second sleep by default
+    establishConnection defaultInitialBackoff conn
+    dbKeepalive defaultBackoff conn
+  _ <- forkServer "localhost" 8081
   app conn
-
--- Attempt to connect to the database, backing off using the given backoff function.
-monitorConnection :: Int -> (Int -> Int) -> IO Connection
-monitorConnection sleep backoff = do
-  threadDelay sleep
-  (c :: Either IOError Connection) <- try (connectPostgreSQL "")
-  case c of
-    Left _   -> threadDelay sleep >> monitorConnection (backoff sleep) backoff
-    Right c' -> return c'
-
--- Establish a database connection and store it in the given (empty) MVar
-establishConnection :: Int -> MVar Connection -> IO ()
-establishConnection sleep connVar = do
-  conn <- monitorConnection sleep id
-  putMVar connVar conn
-  return ()
-
--- Reconnect to the database and store the connection in the given MVar,
--- replacing its previous contents.
-reEstablishConnection :: Int -> MVar Connection -> IO ()
-reEstablishConnection sleep connVar = do
-  conn <- monitorConnection sleep (* 2)
-  _ <- swapMVar connVar conn
-  return ()
-
--- Poll the database connection, checking that it is still up
--- If it isn't, attempt to reconnect, backing off exponentially
-dbKeepalive :: Int -> MVar Connection -> IO ()
-dbKeepalive sleep connVar = do
-  threadDelay sleep
-  c <- readMVar connVar
-  (alive :: Either IOError [Only Int]) <- try (query_ c "SELECT 1")
-  case alive of
-    Right _ -> dbKeepalive sleep connVar
-    Left _  -> reEstablishConnection sleep connVar
-
--- Attempt to read the given MVar, and throw an exception if the read would block
--- We use this when reading the database connection so that we'll throw an
--- exception if we get an API request before the connection has been
--- established.
-readMVarNow :: MVar a -> IO a
-readMVarNow m = do
-  x <- tryReadMVar m
-  case x of
-    Just x' -> return x'
-    Nothing -> throw $ userError "attempted to read empty mvar"
-
-withCors :: ActionM () -> ActionM ()
-withCors a = do
-  setHeader "Access-Control-Allow-Origin" "*"
-  a
 
 app :: MVar Connection -> IO ()
 app conn = scotty 8080 $ do
-    get "/health_check" $ withCors(healthCheckRoute conn)
+    get "/health_check" $ withCors (healthCheckRoute conn)
     get "/queue-summary/:queue" $ withCors (queueSummaryRoute conn)
     get "/queue-summary" $ withCors (redirect "/queue-summary/")
     get "/failures" $ withCors (failureSummaryRoute conn)
@@ -103,7 +57,12 @@ app conn = scotty 8080 $ do
     get (literal "/css/app.css") $ file "./client/css/app.css"
     get "/css/:file" $ param "file" >>= \f -> file ("./client/css/" ++ f)
 
+-- The type for all our API routes
+-- Every route has access to the database connection
 type Route = MVar Connection -> ActionM ()
+
+withCors :: ActionM () -> ActionM ()
+withCors a = setHeader "Access-Control-Allow-Origin" "*" >> a
 
 healthCheckRoute :: Route
 healthCheckRoute conn = do
@@ -216,8 +175,19 @@ jobsRoute conn = do
   js <- liftIO $ jobs c f
   json js
 
-
 -- Like `param`, but when a parameter isn't present it
 -- returns Nothing instead of raising an exception.
 safeParam :: Parsable a => L.Text -> ActionM (Maybe a)
 safeParam p = fmap Just (param p) `rescue` const (return Nothing)
+
+-- Attempt to read the given MVar, and throw an exception if the read would block
+-- We use this when reading the database connection so that we'll throw an
+-- exception if we get an API request before the connection has been
+-- established.
+readMVarNow :: MVar a -> IO a
+readMVarNow m = do
+  x <- tryReadMVar m
+  case x of
+    Just x' -> return x'
+    Nothing -> throw $ userError "attempted to read empty mvar"
+

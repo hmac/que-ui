@@ -39,6 +39,7 @@ library
     , aeson
   exposed-modules:
       Sql
+      Database
   other-modules:
       Paths_que_ui
   default-language: Haskell2010
