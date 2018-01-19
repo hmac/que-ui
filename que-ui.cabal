@@ -64,6 +64,7 @@ executable que-ui
     , warp
     , wai
     , ekg
+    , wai-extra
   other-modules:
       Paths_que_ui
   default-language: Haskell2010

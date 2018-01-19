@@ -4,25 +4,30 @@
 
 module Main where
 
-import           Control.Concurrent         (forkIO)
+import           Control.Concurrent                   (forkIO)
 import           Control.Concurrent.MVar
-import           Control.Exception          (throw)
-import           Control.Monad.IO.Class     (liftIO)
-import qualified Data.Map.Strict            as Map
-import qualified Data.Text.Lazy             as L
-import           Database                   (dbKeepalive, defaultBackoff,
-                                             defaultInitialBackoff,
-                                             establishConnection)
+import           Control.Exception                    (throw)
+import           Control.Monad.IO.Class               (liftIO)
+import qualified Data.Map.Strict                      as Map
+import qualified Data.Text.Lazy                       as L
+import           Database                             (dbKeepalive,
+                                                       defaultBackoff,
+                                                       defaultInitialBackoff,
+                                                       establishConnection)
 import           Database.PostgreSQL.Simple
 import           Network.HTTP.Types.Status
-import           Sql                        (JobFilter (..), destroyFailures,
-                                             destroyJob, failureSummary,
-                                             healthCheck, job, jobs,
-                                             queueSummary, retryFailures,
-                                             retryJob, workers)
-import           System.IO                  (BufferMode (LineBuffering),
-                                             hSetBuffering, stdout)
-import           System.Remote.Monitoring   (forkServer)
+import           Network.Wai.Middleware.RequestLogger (logStdout)
+import           Sql                                  (JobFilter (..),
+                                                       destroyFailures,
+                                                       destroyJob,
+                                                       failureSummary,
+                                                       healthCheck, job, jobs,
+                                                       queueSummary,
+                                                       retryFailures, retryJob,
+                                                       workers)
+import           System.IO                            (BufferMode (LineBuffering),
+                                                       hSetBuffering, stdout)
+import           System.Remote.Monitoring             (forkServer)
 import           Web.Scotty
 
 main :: IO ()
@@ -38,6 +43,7 @@ main = do
 
 app :: MVar Connection -> IO ()
 app conn = scotty 8080 $ do
+    middleware logStdout
     get "/health_check" $ withCors (healthCheckRoute conn)
     get "/queue-summary/:queue" $ withCors (queueSummaryRoute conn)
     get "/queue-summary" $ withCors (redirect "/queue-summary/")
