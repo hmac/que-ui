@@ -16,7 +16,7 @@ import           Sql
 
 main :: IO ()
 main = do
-  tree <- testSpec "foo" spec
+  tree <- testSpec "" spec
   defaultMain tree
 
 withDb :: (Connection -> IO ()) -> IO ()
