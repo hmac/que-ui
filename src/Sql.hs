@@ -2,10 +2,24 @@
 {-# LANGUAGE QuasiQuotes         #-}
 {-# LANGUAGE RecordWildCards     #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-module Sql where
+module Sql (healthCheck
+           , workers
+           , destroyFailures
+           , destroyJob
+           , failureSummary
+           , job
+           , jobs
+           , queueSummary
+           , retryFailures
+           , retryJob
+           , JobFilter (..)
+           , JobRow (..)
+           , WorkerRow (..)
+           , FailureRow (..)
+           , SummaryRow (..)
+           ) where
 
 import           Data.Aeson
-import qualified Data.Map.Strict                    as Map
 import           Data.Maybe                         (isJust)
 import           Data.Text
 import           Data.Time.Clock

@@ -8,32 +8,45 @@ import           Control.Concurrent                   (forkIO)
 import           Control.Concurrent.MVar
 import           Control.Exception                    (throw)
 import           Control.Monad.IO.Class               (liftIO)
+import           Data.Char                            (toLower)
 import qualified Data.Map.Strict                      as Map
 import qualified Data.Text.Lazy                       as L
-import           Database                             (dbKeepalive,
-                                                       defaultBackoff,
-                                                       defaultInitialBackoff,
-                                                       establishConnection)
-import           Database.PostgreSQL.Simple
+import           Env                                  ((<=<))
+import qualified Env
 import           Network.HTTP.Types.Status
 import           Network.Wai.Middleware.RequestLogger (logStdout)
-import           Sql                                  (JobFilter (..),
-                                                       destroyFailures,
-                                                       destroyJob,
-                                                       failureSummary,
-                                                       healthCheck, job, jobs,
-                                                       queueSummary,
-                                                       retryFailures, retryJob,
-                                                       workers)
 import           System.IO                            (BufferMode (LineBuffering),
-                                                       hSetBuffering, stdout)
+                                                       FilePath, hSetBuffering,
+                                                       stdout)
 import           System.Remote.Monitoring             (forkServer)
 import           Web.Scotty
 
+import           Database
+import           Sql
+
+data Config = Config { staticDirectory :: FilePath
+                     , cors            :: Cors
+                     } deriving (Show)
+
+data Cors = CorsAllowAll | CorsDenyAll deriving (Show)
+
+fetchConfig :: IO Config
+fetchConfig = Env.parse (Env.header "que-ui") $
+  Config <$> Env.var (Env.str <=< Env.nonempty) "STATIC_DIRECTORY" (Env.help "Path to the static file directory")
+         <*> Env.var (cors <=< lowerCase) "CORS" (Env.help "CORS setting (one of allow_all, deny_all)")
+           where cors :: Env.Reader Env.Error Cors
+                 cors "allow_all" = Right CorsAllowAll
+                 cors "deny_all"  = Right CorsDenyAll
+                 cors _           = Left $ Env.UnreadError "invalid cors option"
+                 lowerCase :: Env.Reader e String
+                 lowerCase s = Right $ map toLower s
+
 main :: IO ()
 main = do
+  config <- fetchConfig
   hSetBuffering stdout LineBuffering
   putStrLn "starting Que UI..."
+  print config
   conn <- newEmptyMVar
   _ <- forkIO $ do
     establishConnection defaultInitialBackoff conn

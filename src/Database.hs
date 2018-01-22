@@ -7,6 +7,7 @@ module Database
   , establishConnection
   , defaultBackoff
   , defaultInitialBackoff
+  , Connection -- re-exported from PostgreSQL.Simple
   )
   where
 
