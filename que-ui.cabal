@@ -63,6 +63,7 @@ executable que-ui
     , bytestring
     , warp
     , wai
+    , wai-cors
     , ekg
     , wai-extra
     , envparse

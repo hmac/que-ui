@@ -1,2 +1,4 @@
 client/node_modules
+.stack-work/
+.git/
 Dockerfile

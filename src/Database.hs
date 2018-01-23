@@ -3,15 +3,12 @@
 
 module Database
   (
-    dbKeepalive
-  , establishConnection
-  , defaultBackoff
-  , defaultInitialBackoff
-  , Connection -- re-exported from PostgreSQL.Simple
+    Connection -- re-exported from PostgreSQL.Simple
+  , forkConnectionMonitor
   )
   where
 
-import           Control.Concurrent         (threadDelay)
+import           Control.Concurrent         (ThreadId, forkIO, threadDelay)
 import           Control.Concurrent.MVar
 import           Control.Exception          (try)
 import           Database.PostgreSQL.Simple
@@ -24,6 +21,11 @@ defaultInitialBackoff = SleepDuration { toInt = 100000 }
 
 defaultBackoff :: SleepDuration
 defaultBackoff = SleepDuration { toInt = 1000000 }
+
+forkConnectionMonitor :: MVar Connection -> IO ThreadId
+forkConnectionMonitor conn = forkIO $ do
+  establishConnection defaultInitialBackoff conn
+  dbKeepalive defaultBackoff conn
 
 -- Establish a database connection and store it in the given (empty) MVar
 establishConnection :: SleepDuration -> MVar Connection -> IO ()

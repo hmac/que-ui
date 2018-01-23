@@ -4,13 +4,13 @@
 
 module Main where
 
-import           Control.Concurrent                   (forkIO)
 import           Control.Concurrent.MVar
 import           Control.Exception                    (throw)
 import           Control.Monad.IO.Class               (liftIO)
 import qualified Data.Map.Strict                      as Map
 import qualified Data.Text.Lazy                       as L
 import           Network.HTTP.Types.Status
+import           Network.Wai.Middleware.Cors
 import           Network.Wai.Middleware.RequestLogger (logStdout)
 import           System.IO                            (BufferMode (LineBuffering),
                                                        hSetBuffering, stdout)
@@ -25,27 +25,31 @@ main = do
   hSetBuffering stdout LineBuffering
   putStrLn "starting Que UI..."
   conn <- newEmptyMVar
-  _ <- forkIO $ do
-    establishConnection defaultInitialBackoff conn
-    dbKeepalive defaultBackoff conn
-  _ <- forkServer "localhost" 8081
+  _ <- forkConnectionMonitor conn
+  _ <- forkServer "0.0.0.0" 8081
   app conn
 
 app :: MVar Connection -> IO ()
 app conn = scotty 8080 $ do
     middleware logStdout
-    get "/health_check" $ withCors (healthCheckRoute conn)
-    get "/queue-summary/:queue" $ withCors (queueSummaryRoute conn)
-    get "/queue-summary" $ withCors (redirect "/queue-summary/")
-    get "/failures" $ withCors (failureSummaryRoute conn)
-    get "/failures/:job_class" $ withCors (failuresRoute conn)
-    post "/failures/:job_class/retry" $ withCors (retryFailuresRoute conn)
-    post "/failures/:job_class/destroy" $ withCors (destroyFailuresRoute conn)
-    get "/workers" $ withCors (workersRoute conn)
-    get "/jobs/:id" $ withCors (jobRoute conn)
-    post "/jobs/:id/retry" $ withCors (retryJobRoute conn)
-    post "/jobs/:id/destroy" $ withCors (destroyJobRoute conn)
-    get "/jobs" $ withCors (jobsRoute conn)
+    middleware simpleCors
+
+    get "/health_check" $ healthCheckRoute conn
+
+    get "/queue-summary/:queue" $ queueSummaryRoute conn
+    get "/queue-summary" $ redirect "/queue-summary/"
+
+    get "/workers" $ workersRoute conn
+
+    get "/failures" $ failureSummaryRoute conn
+    get "/failures/:job_class" $ failuresRoute conn
+    post "/failures/:job_class/retry" $ retryFailuresRoute conn
+    post "/failures/:job_class/destroy" $ destroyFailuresRoute conn
+
+    get "/jobs/:id" $ jobRoute conn
+    post "/jobs/:id/retry" $ retryJobRoute conn
+    post "/jobs/:id/destroy" $ destroyJobRoute conn
+    get "/jobs" $ jobsRoute conn
 
     -- Static files
     get "/" $ file "./client/index.html"
@@ -56,9 +60,6 @@ app conn = scotty 8080 $ do
 -- The type for all our API routes
 -- Every route has access to the database connection
 type Route = MVar Connection -> ActionM ()
-
-withCors :: ActionM () -> ActionM ()
-withCors a = setHeader "Access-Control-Allow-Origin" "*" >> a
 
 healthCheckRoute :: Route
 healthCheckRoute conn = do
